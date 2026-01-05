@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from statm8.endpoints import loader
+from statm8.endpoints import loader, generator
 
 app = FastAPI()
 
@@ -13,6 +13,7 @@ app.add_middleware(
 )
 
 app.include_router(loader.router)
+app.include_router(generator.router)
 
 @app.get("/")
 def root():
