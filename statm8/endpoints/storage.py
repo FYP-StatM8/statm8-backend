@@ -11,8 +11,8 @@ from statm8.services.storage import (
     csv_collection,
     comment_collection,
     asset_collection,
-    upload_csv_file, 
-    add_csv_comment, 
+    upload_csv_file,
+    add_csv_comment,
     add_comment_assets
 )
 
@@ -55,6 +55,17 @@ async def add_comment_asset(
 @router.get("/csv/user/{uid}")
 def get_user_csvs(uid: str):
     csvs = list(csv_collection.find({"uid": uid}))
+    for csv_doc in csvs:
+        csv_doc["_id"] = str(csv_doc["_id"])  # Convert ObjectId to string
+    return {"csvs": csvs}
+
+
+@router.get("/csv/user/{uid}/{csv_id}")
+def get_user_csvs(uid: str, csv_id: str):
+    if not ObjectId.is_valid(csv_id):
+        raise HTTPException(status_code=400, detail="Invalid CSV ID")
+
+    csvs = list(csv_collection.find({"uid": uid, "_id": ObjectId(csv_id)}))
     for csv_doc in csvs:
         csv_doc["_id"] = str(csv_doc["_id"])  # Convert ObjectId to string
     return {"csvs": csvs}
