@@ -17,6 +17,8 @@ class GenerateEDARequest(BaseModel):
     """Request model for EDA generation"""
     file_path: str
     comments: Optional[str] = None  # User comments/instructions for EDA generation
+    uid: str
+    csv_id: str
 
 
 class GenerateEDAResponse(BaseModel):

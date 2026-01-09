@@ -1,14 +1,18 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from statm8.services.loader import analyze_file
 from statm8.models.loader import DatasetSummaryResponse
 from statm8.constants.stat import UPLOAD_FOLDER
+from statm8.services.storage import upload_csv_file
 import os
 import json
 
 router = APIRouter(tags=["Data Loader"])
 
 @router.post("/load", response_model=DatasetSummaryResponse)
-async def analyze_dataset(file: UploadFile = File(...)):
+async def analyze_dataset(
+    uid: str = Form(...),
+    file: UploadFile = File(...)
+):
     """
     Upload a CSV or JSON file and get a comprehensive dataset summary
     """
@@ -27,6 +31,20 @@ async def analyze_dataset(file: UploadFile = File(...)):
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result.dict(), f, indent=2, ensure_ascii=False)
+
+        # reset pointer before reusing file
+        file.file.seek(0)
+
+        # Call helper to upload & store in MongoDB
+        result_dict = result.model_dump()
+        upload_response = await upload_csv_file(
+            uid=uid,
+            csv_name=base_name,
+            json_response=json.dumps(result_dict, ensure_ascii=False),
+            csv_file=file
+        )
+        print(upload_response)
+        result.csv_id = upload_response['csv_id']
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")

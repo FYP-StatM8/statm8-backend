@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 class ColumnInfo(BaseModel):
     name: str
@@ -10,6 +10,7 @@ class ColumnInfo(BaseModel):
     sample_values: List[Any]
 
 class DatasetSummaryResponse(BaseModel):
+    csv_id: Optional[str] = None
     file_type: str
     total_rows: int
     total_columns: int
