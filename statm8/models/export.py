@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 
 
@@ -18,13 +18,14 @@ class ExportSection(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    """Request model for PDF export"""
+    """Request model for report export"""
     dataset_name: str
     include_summary: bool = True  # Include dataset summary
     include_plots: bool = True  # Include generated plots
     include_vlm_analysis: bool = False  # Include VLM plot analyses (requires prior VLM run)
     include_code: bool = False  # Include generated code blocks
     title: Optional[str] = None  # Custom report title
+    format: Literal["pdf", "markdown"] = "pdf"  # Export format: pdf or markdown
 
 
 class ExportResponse(BaseModel):

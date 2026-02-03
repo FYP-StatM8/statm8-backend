@@ -64,7 +64,9 @@ def analyze_single_plot(
             "content": """You are an expert data analyst skilled at interpreting data visualizations. 
 Analyze the provided plot image and extract meaningful insights.
 
-Your analysis should include:
+Your response should only include the following, and nothing else:
+A title for the analysis of this plot
+The following 4 points as a numbered list:
 1. **Plot Type**: Identify the type of visualization
 2. **Key Observations**: What patterns, trends, or anomalies are visible?
 3. **Statistical Insights**: Any notable statistical properties
