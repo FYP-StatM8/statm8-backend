@@ -81,3 +81,6 @@ typing_extensions==4.15.0
 urllib3==2.5.0
 waypaper==2.6
 wheel==0.45.1
+
+# VLM and Export dependencies
+fpdf2==2.8.1
