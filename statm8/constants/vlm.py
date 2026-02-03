@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 
 # VLM model configuration - using Groq's vision model
-VLM_MODEL = "llama-3.2-90b-vision-preview"
+VLM_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # Prompt template for analyzing individual plots
 PLOT_ANALYSIS_TEMPLATE = ChatPromptTemplate.from_messages([
