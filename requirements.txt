@@ -9,5 +9,5 @@ pandas
 numpy
 matplotlib
 seaborn
-pymongo
+pymongo[srv]
 cloudinary

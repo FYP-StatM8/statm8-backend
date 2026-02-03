@@ -54,29 +54,44 @@ async def add_comment_asset(
 
 @router.get("/csv/user/{uid}")
 def get_user_csvs(uid: str):
-    csvs = list(csv_collection.find({"uid": uid}))
-    for csv_doc in csvs:
-        csv_doc["_id"] = str(csv_doc["_id"])  # Convert ObjectId to string
-    return {"csvs": csvs}
+    if csv_collection is None:
+        return {"csvs": [], "message": "Database connection not available"}
+    try:
+        csvs = list(csv_collection.find({"uid": uid}))
+        for csv_doc in csvs:
+            csv_doc["_id"] = str(csv_doc["_id"])
+        return {"csvs": csvs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 @router.get("/csv/{csv_id}/comments")
 def get_csv_comments(csv_id: str):
+    if comment_collection is None:
+        return {"comments": [], "message": "Database connection not available"}
     if not ObjectId.is_valid(csv_id):
         raise HTTPException(status_code=400, detail="Invalid CSV ID")
 
-    comments = list(comment_collection.find({"csv_id": csv_id}))
-    for comment_doc in comments:
-        comment_doc["_id"] = str(comment_doc["_id"])
-    return {"comments": comments}
+    try:
+        comments = list(comment_collection.find({"csv_id": csv_id}))
+        for comment_doc in comments:
+            comment_doc["_id"] = str(comment_doc["_id"])
+        return {"comments": comments}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 @router.get("/csv/comment/{comment_id}/assets")
 def get_comment_assets(comment_id: str):
+    if asset_collection is None:
+        return {"assets": [], "message": "Database connection not available"}
     if not ObjectId.is_valid(comment_id):
         raise HTTPException(status_code=400, detail="Invalid Comment ID")
 
-    assets = list(asset_collection.find({"comment_id": comment_id}))
-    for asset_doc in assets:
-        asset_doc["_id"] = str(asset_doc["_id"])
-    return {"assets": assets}
+    try:
+        assets = list(asset_collection.find({"comment_id": comment_id}))
+        for asset_doc in assets:
+            asset_doc["_id"] = str(asset_doc["_id"])
+        return {"assets": assets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

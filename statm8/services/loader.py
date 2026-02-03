@@ -13,8 +13,16 @@ def serialize_value(value: Any) -> Any:
         return None
     if isinstance(value, (pd.Timestamp, pd.Period)):
         return str(value)
+    if isinstance(value, (list, tuple, dict)):
+        try:
+            return json.dumps(value)
+        except (TypeError, ValueError):
+            return str(value)
     if hasattr(value, 'item'):
-        return value.item()
+        try:
+            return value.item()
+        except (ValueError, OverflowError):
+            return str(value)
     return value
 
 def load_dataframe(file_path: str) -> tuple[pd.DataFrame, str]:
@@ -22,36 +30,107 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, str]:
     if file_path.endswith('.csv'):
         return pd.read_csv(file_path), 'csv'
     elif file_path.endswith('.json'):
-        return pd.read_json(file_path), 'json'
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            if isinstance(data, list):
+                if len(data) == 0:
+                    raise ValueError("JSON file contains empty array")
+                if isinstance(data[0], dict):
+                    df = pd.DataFrame(data)
+                    if df.empty:
+                        raise ValueError("Failed to parse JSON: empty DataFrame")
+                    return df, 'json'
+                else:
+                    raise ValueError("JSON array must contain objects/dictionaries")
+            
+            elif isinstance(data, dict):
+                if all(isinstance(v, list) for v in data.values()):
+                    lengths = [len(v) for v in data.values()]
+                    if len(set(lengths)) > 1:
+                        raise ValueError(f"All arrays must be of the same length. Found lengths: {set(lengths)}")
+                    df = pd.DataFrame(data)
+                    if df.empty:
+                        raise ValueError("Failed to parse JSON: empty DataFrame")
+                    return df, 'json'
+                else:
+                    df = pd.json_normalize([data])
+                    if df.empty:
+                        raise ValueError("Failed to parse JSON: empty DataFrame")
+                    return df, 'json'
+            else:
+                raise ValueError(f"Unsupported JSON structure: {type(data)}")
+                
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON format: {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Failed to load JSON file: {str(e)}")
     else:
-        raise ValueError("Unsupported file type")
+        raise ValueError("Unsupported file type. Only CSV and JSON files are supported.")
 
 def get_column_info(df: pd.DataFrame) -> List[ColumnInfo]:
     """Extract detailed information about each column"""
     columns_info = []
     
     for col in df.columns:
-        unique_values = df[col].dropna().unique()
-        sample_values = [serialize_value(v) for v in unique_values[:5].tolist()]
+        try:
+            sample_values = []
+            non_null_data = df[col].dropna()
+            if len(non_null_data) > 0:
+                unique_vals = []
+                for idx in range(min(5, len(non_null_data))):
+                    val = non_null_data.iloc[idx]
+                    serialized = serialize_value(val)
+                    if serialized is not None:
+                        sample_values.append(serialized)
+        except Exception as e:
+            try:
+                sample_values = [str(df[col].iloc[0])] if len(df) > 0 and pd.notna(df[col].iloc[0]) else []
+            except:
+                sample_values = []
         
-        col_info = ColumnInfo(
-            name=col,
-            dtype=str(df[col].dtype),
-            non_null_count=int(df[col].notna().sum()),
-            null_count=int(df[col].isna().sum()),
-            unique_count=int(df[col].nunique()),
-            sample_values=sample_values
-        )
-        columns_info.append(col_info)
+        try:
+            col_info = ColumnInfo(
+                name=str(col),
+                dtype=str(df[col].dtype),
+                non_null_count=int(df[col].notna().sum()),
+                null_count=int(df[col].isna().sum()),
+                unique_count=int(df[col].nunique()),
+                sample_values=sample_values[:5]
+            )
+            columns_info.append(col_info)
+        except Exception as e:
+            col_info = ColumnInfo(
+                name=str(col),
+                dtype="unknown",
+                non_null_count=0,
+                null_count=len(df),
+                unique_count=0,
+                sample_values=[]
+            )
+            columns_info.append(col_info)
     
     return columns_info
 
 def get_sample_rows(df: pd.DataFrame, n: int = 5) -> List[Dict[str, Any]]:
     """Get the first n rows as list of dictionaries"""
     sample_rows = []
-    for _, row in df.head(n).iterrows():
-        row_dict = {col: serialize_value(value) for col, value in row.items()}
-        sample_rows.append(row_dict)
+    try:
+        for idx in range(min(n, len(df))):
+            row = df.iloc[idx]
+            row_dict = {}
+            for col in df.columns:
+                try:
+                    value = row[col]
+                    serialized = serialize_value(value)
+                    row_dict[str(col)] = serialized if serialized is not None else None
+                except Exception as e:
+                    row_dict[str(col)] = None
+            sample_rows.append(row_dict)
+    except Exception as e:
+        print(f"Error getting sample rows: {e}")
+        sample_rows = []
     return sample_rows
 
 def create_demographics(df: pd.DataFrame, file_type: str) -> str:

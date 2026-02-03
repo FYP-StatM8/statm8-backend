@@ -54,10 +54,10 @@
       "unique_count": 43,
       "sample_values": [
         1.4,
+        1.4,
         1.3,
         1.5,
-        1.7,
-        1.6
+        1.4
       ]
     },
     {
@@ -68,10 +68,10 @@
       "unique_count": 22,
       "sample_values": [
         0.2,
-        0.4,
-        0.3,
-        0.1,
-        0.5
+        0.2,
+        0.2,
+        0.2,
+        0.2
       ]
     },
     {
@@ -82,8 +82,10 @@
       "unique_count": 3,
       "sample_values": [
         "Iris-setosa",
-        "Iris-versicolor",
-        "Iris-virginica"
+        "Iris-setosa",
+        "Iris-setosa",
+        "Iris-setosa",
+        "Iris-setosa"
       ]
     }
   ],

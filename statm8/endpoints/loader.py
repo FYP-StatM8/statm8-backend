@@ -32,19 +32,41 @@ async def analyze_dataset(
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result.dict(), f, indent=2, ensure_ascii=False)
 
-        # reset pointer before reusing file
-        file.file.seek(0)
-
-        # Call helper to upload & store in MongoDB
-        result_dict = result.model_dump()
-        upload_response = await upload_csv_file(
-            uid=uid,
-            csv_name=base_name,
-            json_response=json.dumps(result_dict, ensure_ascii=False),
-            csv_file=file
-        )
-        print(upload_response)
-        result.csv_id = upload_response['csv_id']
+        # Try to upload to MongoDB/Cloudinary if available, but don't fail if unavailable
+        try:
+            # reset pointer before reusing file
+            file.file.seek(0)
+            
+            result_dict = result.model_dump()
+            upload_response = await upload_csv_file(
+                uid=uid,
+                csv_name=base_name,
+                json_response=json.dumps(result_dict, ensure_ascii=False),
+                csv_file=file
+            )
+            result.csv_id = upload_response.get('csv_id', 'local_only')
+            print(f"File uploaded successfully to database: {result.csv_id}")
+        except HTTPException as e:
+            if e.status_code == 503:
+                print("Database/Cloudinary unavailable. File saved locally only.")
+                import hashlib
+                import time
+                unique_id = hashlib.md5(f"{base_name}_{uid}_{time.time()}".encode()).hexdigest()[:8]
+                result.csv_id = f"local_{unique_id}"
+            else:
+                raise
+        except Exception as e:
+            print(f"Failed to upload to cloud storage: {e}. File saved locally only.")
+            import hashlib
+            import time
+            unique_id = hashlib.md5(f"{base_name}_{uid}_{time.time()}".encode()).hexdigest()[:8]
+            result.csv_id = f"local_{unique_id}"
+        
         return result
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error processing file: {error_trace}")
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
