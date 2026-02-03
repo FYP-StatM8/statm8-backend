@@ -5,6 +5,7 @@ from langchain_groq import ChatGroq
 from statm8.constants.stat import GROQ_API_KEY
 from statm8.constants.vlm import VLM_MODEL, PLOT_ANALYSIS_TEMPLATE, SUMMARY_TEMPLATE
 from statm8.models.vlm import PlotAnalysis, AnalyzePlotsResponse, StreamPlotAnalysisResponse
+from statm8.services.export import save_vlm_analysis
 
 
 def get_vlm():
@@ -172,6 +173,7 @@ def analyze_plots_stream(
             )
     
     # Generate and yield summary
+    summary = None
     if successful_analyses:
         try:
             summary = generate_summary(vlm, dataset_name, successful_analyses)
@@ -195,6 +197,18 @@ def analyze_plots_stream(
                 error=f"Failed to generate summary: {str(e)}",
                 is_summary=True
             )
+    
+    # Save VLM analysis to disk for export
+    if successful_analyses:
+        analysis_data = {
+            "dataset_name": dataset_name,
+            "plot_dir": plot_dir,
+            "total_plots": len(plots),
+            "plot_analyses": [pa.model_dump() for pa in successful_analyses],
+            "summary": summary,
+            "overall_status": "completed" if successful_analyses else "failed"
+        }
+        save_vlm_analysis(dataset_name, analysis_data)
 
 
 def analyze_plots_sync(
@@ -254,6 +268,17 @@ def analyze_plots_sync(
             summary = f"Failed to generate summary: {str(e)}"
     
     overall_status = "completed" if any(pa.status == "success" for pa in plot_analyses) else "failed"
+    
+    # Save VLM analysis to disk for export
+    analysis_data = {
+        "dataset_name": dataset_name,
+        "plot_dir": plot_dir,
+        "total_plots": len(plots),
+        "plot_analyses": [pa.model_dump() for pa in plot_analyses],
+        "summary": summary,
+        "overall_status": overall_status
+    }
+    save_vlm_analysis(dataset_name, analysis_data)
     
     return AnalyzePlotsResponse(
         dataset_name=dataset_name,
