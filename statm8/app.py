@@ -1,17 +1,16 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from statm8.endpoints import loader, generator, storage
+from statm8.endpoints import loader, generator, vlm, export, storage
 import traceback
 
-app = FastAPI(title="StatM8 API", version="1.0.0")
+app = FastAPI(
+    title="Statm8 API",
+    description="Automated EDA with AI-powered analysis and export capabilities",
+    version="1.0.0"
+)
 
-origins = [
-    "http://localhost:8080",
-    "http://localhost:3000",
-    "http://127.0.0.1:8080",
-    "http://127.0.0.1:3000",
-]
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,6 +23,8 @@ app.add_middleware(
 
 app.include_router(loader.router)
 app.include_router(generator.router)
+app.include_router(vlm.router)
+app.include_router(export.router)
 app.include_router(storage.router)
 
 @app.exception_handler(Exception)
