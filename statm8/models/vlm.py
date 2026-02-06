@@ -16,6 +16,10 @@ class AnalyzePlotsRequest(BaseModel):
     """Request model for VLM plot analysis"""
     dataset_name: str  # Name of dataset (e.g., 'iris', 'breast-cancer')
     plot_dir: Optional[str] = None  # Optional custom plot directory path
+    # User context for MongoDB persistence/caching
+    uid: Optional[str] = None  # User ID
+    csv_id: Optional[str] = None  # CSV file ID
+    use_cache: bool = True  # Whether to use cached analysis if available
 
 
 class AnalyzePlotsResponse(BaseModel):
@@ -26,6 +30,7 @@ class AnalyzePlotsResponse(BaseModel):
     plot_analyses: List[PlotAnalysis]
     summary: Optional[str] = None
     overall_status: str  # analyzing, completed, failed
+    cached: bool = False  # True if response was loaded from cache
 
 
 class StreamPlotAnalysisResponse(BaseModel):

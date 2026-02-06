@@ -2,6 +2,7 @@ import os
 import re
 import json
 import shutil
+import zipfile
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Literal
 from fpdf import FPDF
@@ -11,6 +12,11 @@ import mistune
 from jinja2 import Environment, BaseLoader
 
 from statm8.models.export import ExportResponse, ExportStatusResponse, PlotInfo
+from statm8.services.storage import (
+    upload_export_to_cloudinary,
+    save_export_to_db,
+    get_vlm_analysis_by_dataset
+)
 
 
 # LaTeX report template using Jinja2
@@ -615,6 +621,120 @@ def save_vlm_analysis(dataset_name: str, analysis_data: Dict[str, Any]):
         json.dump(analysis_data, f, indent=2)
 
 
+def create_export_zip(
+    report_path: str,
+    plot_files: List[str],
+    dataset_name: str,
+    export_format: str
+) -> str:
+    """
+    Create a ZIP file containing the report and associated images.
+    
+    Args:
+        report_path: Path to the main report file (.md or .tex)
+        plot_files: List of plot file paths to include
+        dataset_name: Name of the dataset
+        export_format: Format of the export (markdown or latex)
+    
+    Returns:
+        Path to the created ZIP file
+    """
+    # Generate ZIP filename based on report filename
+    report_dir = os.path.dirname(report_path)
+    report_basename = os.path.splitext(os.path.basename(report_path))[0]
+    zip_filename = f"{report_basename}.zip"
+    zip_path = os.path.join(report_dir, zip_filename)
+    
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Add the main report file at root level
+        report_filename = os.path.basename(report_path)
+        zf.write(report_path, report_filename)
+        
+        # Add images to images/ subfolder
+        for plot_path in plot_files:
+            if os.path.exists(plot_path):
+                plot_filename = os.path.basename(plot_path)
+                # Store in images/ folder within the zip
+                zf.write(plot_path, f"images/{plot_filename}")
+    
+    return zip_path
+
+
+async def generate_pdf_report_with_upload(
+    dataset_name: str,
+    uid: str,
+    csv_id: str,
+    include_summary: bool = True,
+    include_plots: bool = True,
+    include_vlm_analysis: bool = False,
+    include_code: bool = False,
+    custom_title: Optional[str] = None
+) -> ExportResponse:
+    """
+    Generate a PDF report and upload to Cloudinary.
+    
+    Args:
+        dataset_name: Name of the dataset
+        uid: User ID for storage
+        csv_id: CSV file ID
+        include_summary: Include dataset summary section
+        include_plots: Include generated plots
+        include_vlm_analysis: Include VLM plot analyses
+        include_code: Include generated code blocks
+        custom_title: Custom title for the report
+    
+    Returns:
+        ExportResponse with Cloudinary download URL
+    """
+    # Generate the PDF locally first
+    result = generate_pdf_report(
+        dataset_name=dataset_name,
+        include_summary=include_summary,
+        include_plots=include_plots,
+        include_vlm_analysis=include_vlm_analysis,
+        include_code=include_code,
+        custom_title=custom_title
+    )
+    
+    if result.status != "success":
+        return result
+    
+    # Upload to Cloudinary
+    upload_result = await upload_export_to_cloudinary(
+        file_path=result.export_path,
+        dataset_name=dataset_name,
+        export_format="pdf"
+    )
+    
+    # Save to MongoDB
+    db_result = await save_export_to_db(
+        uid=uid,
+        csv_id=csv_id,
+        dataset_name=dataset_name,
+        export_format="pdf",
+        cloudinary_url=upload_result.get("cloudinary_url"),
+        public_id=upload_result.get("public_id"),
+        file_size_bytes=result.file_size_bytes,
+        sections_included=result.sections_included,
+        total_plots=result.total_plots,
+        local_path=result.export_path
+    )
+    
+    return ExportResponse(
+        dataset_name=dataset_name,
+        export_path=result.export_path,
+        file_size_bytes=result.file_size_bytes,
+        sections_included=result.sections_included,
+        total_plots=result.total_plots,
+        generated_at=result.generated_at,
+        status="success",
+        download_url=db_result.get("download_url"),
+        export_id=db_result.get("export_id"),
+        format="pdf",
+        is_zip=False
+    )
+
+
 def generate_pdf_report(
     dataset_name: str,
     include_summary: bool = True,
@@ -864,10 +984,10 @@ def generate_markdown_report(
                 dest_path = os.path.join(paths["export_dir"], plot.filename)
                 if not os.path.exists(dest_path):
                     shutil.copy2(plot.path, dest_path)
-                # Add plot image with filename only
+                # Add plot image - use images/ subfolder for zip compatibility
                 lines.append(f"### {plot.filename}")
                 lines.append("")
-                lines.append(f"![{plot.filename}]({plot.filename})")
+                lines.append(f"![{plot.filename}](images/{plot.filename})")
                 lines.append("")
                 
             
@@ -895,7 +1015,99 @@ def generate_markdown_report(
         sections_included=sections_included,
         total_plots=total_plots,
         generated_at=datetime.now().isoformat(),
-        status="success"
+        status="success",
+        format="markdown",
+        is_zip=False
+    )
+
+
+async def generate_markdown_report_with_upload(
+    dataset_name: str,
+    uid: str,
+    csv_id: str,
+    include_summary: bool = True,
+    include_plots: bool = True,
+    include_vlm_analysis: bool = False,
+    include_code: bool = False,
+    custom_title: Optional[str] = None
+) -> ExportResponse:
+    """
+    Generate a Markdown report, bundle with images into a ZIP, and upload to Cloudinary.
+    
+    Args:
+        dataset_name: Name of the dataset
+        uid: User ID for storage
+        csv_id: CSV file ID
+        include_summary: Include dataset summary section
+        include_plots: Include generated plots
+        include_vlm_analysis: Include VLM plot analyses
+        include_code: Include generated code blocks
+        custom_title: Custom title for the report
+    
+    Returns:
+        ExportResponse with Cloudinary download URL for the ZIP file
+    """
+    # Generate the markdown locally first
+    result = generate_markdown_report(
+        dataset_name=dataset_name,
+        include_summary=include_summary,
+        include_plots=include_plots,
+        include_vlm_analysis=include_vlm_analysis,
+        include_code=include_code,
+        custom_title=custom_title
+    )
+    
+    if result.status != "success":
+        return result
+    
+    # Get plot files for the zip
+    paths = get_dataset_paths(dataset_name)
+    plots = get_plots_in_directory(paths["plot_dir"])
+    plot_files = [plot.path for plot in plots] if include_plots else []
+    
+    # Create ZIP file
+    zip_path = create_export_zip(
+        report_path=result.export_path,
+        plot_files=plot_files,
+        dataset_name=dataset_name,
+        export_format="markdown"
+    )
+    
+    zip_size = os.path.getsize(zip_path)
+    
+    # Upload ZIP to Cloudinary
+    upload_result = await upload_export_to_cloudinary(
+        file_path=zip_path,
+        dataset_name=dataset_name,
+        export_format="markdown"
+    )
+    
+    # Save to MongoDB
+    db_result = await save_export_to_db(
+        uid=uid,
+        csv_id=csv_id,
+        dataset_name=dataset_name,
+        export_format="markdown",
+        cloudinary_url=upload_result.get("cloudinary_url"),
+        public_id=upload_result.get("public_id"),
+        file_size_bytes=zip_size,
+        sections_included=result.sections_included,
+        total_plots=result.total_plots,
+        local_path=zip_path
+    )
+    
+    return ExportResponse(
+        dataset_name=dataset_name,
+        export_path=zip_path,
+        file_size_bytes=zip_size,
+        sections_included=result.sections_included,
+        total_plots=result.total_plots,
+        generated_at=datetime.now().isoformat(),
+        status="success",
+        download_url=db_result.get("download_url"),
+        export_id=db_result.get("export_id"),
+        format="markdown",
+        is_zip=True
     )
 
 
@@ -973,7 +1185,7 @@ def generate_latex_report(
                     sections_included.append("vlm_analysis")
             
             for plot in plots:
-                # Use only filename for the LaTeX path
+                # Use images/ subfolder for the LaTeX path (zip compatibility)
                 # Copy plot to export directory if not already there
                 dest_path = os.path.join(paths["export_dir"], plot.filename)
                 if not os.path.exists(dest_path):
@@ -981,7 +1193,7 @@ def generate_latex_report(
                 
                 plot_info = {
                     "filename": plot.filename,
-                    "relative_path": plot.filename,  # Just the filename
+                    "relative_path": f"images/{plot.filename}",  # Use images/ subfolder for zip
                     "analysis": None
                 }
                 
@@ -1017,5 +1229,97 @@ def generate_latex_report(
         sections_included=sections_included,
         total_plots=total_plots,
         generated_at=datetime.now().isoformat(),
-        status="success"
+        status="success",
+        format="latex",
+        is_zip=False
+    )
+
+
+async def generate_latex_report_with_upload(
+    dataset_name: str,
+    uid: str,
+    csv_id: str,
+    include_summary: bool = True,
+    include_plots: bool = True,
+    include_vlm_analysis: bool = False,
+    include_code: bool = False,
+    custom_title: Optional[str] = None
+) -> ExportResponse:
+    """
+    Generate a LaTeX report, bundle with images into a ZIP, and upload to Cloudinary.
+    
+    Args:
+        dataset_name: Name of the dataset
+        uid: User ID for storage
+        csv_id: CSV file ID
+        include_summary: Include dataset summary section
+        include_plots: Include generated plots
+        include_vlm_analysis: Include VLM plot analyses
+        include_code: Include generated code blocks
+        custom_title: Custom title for the report
+    
+    Returns:
+        ExportResponse with Cloudinary download URL for the ZIP file
+    """
+    # Generate the LaTeX locally first
+    result = generate_latex_report(
+        dataset_name=dataset_name,
+        include_summary=include_summary,
+        include_plots=include_plots,
+        include_vlm_analysis=include_vlm_analysis,
+        include_code=include_code,
+        custom_title=custom_title
+    )
+    
+    if result.status != "success":
+        return result
+    
+    # Get plot files for the zip
+    paths = get_dataset_paths(dataset_name)
+    plots = get_plots_in_directory(paths["plot_dir"])
+    plot_files = [plot.path for plot in plots] if include_plots else []
+    
+    # Create ZIP file
+    zip_path = create_export_zip(
+        report_path=result.export_path,
+        plot_files=plot_files,
+        dataset_name=dataset_name,
+        export_format="latex"
+    )
+    
+    zip_size = os.path.getsize(zip_path)
+    
+    # Upload ZIP to Cloudinary
+    upload_result = await upload_export_to_cloudinary(
+        file_path=zip_path,
+        dataset_name=dataset_name,
+        export_format="latex"
+    )
+    
+    # Save to MongoDB
+    db_result = await save_export_to_db(
+        uid=uid,
+        csv_id=csv_id,
+        dataset_name=dataset_name,
+        export_format="latex",
+        cloudinary_url=upload_result.get("cloudinary_url"),
+        public_id=upload_result.get("public_id"),
+        file_size_bytes=zip_size,
+        sections_included=result.sections_included,
+        total_plots=result.total_plots,
+        local_path=zip_path
+    )
+    
+    return ExportResponse(
+        dataset_name=dataset_name,
+        export_path=zip_path,
+        file_size_bytes=zip_size,
+        sections_included=result.sections_included,
+        total_plots=result.total_plots,
+        generated_at=datetime.now().isoformat(),
+        status="success",
+        download_url=db_result.get("download_url"),
+        export_id=db_result.get("export_id"),
+        format="latex",
+        is_zip=True
     )

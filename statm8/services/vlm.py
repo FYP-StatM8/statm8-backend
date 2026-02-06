@@ -1,11 +1,18 @@
 import os
 import base64
-from typing import List, Generator, Optional
+import asyncio
+from typing import List, Generator, Optional, Dict, Any
 from langchain_groq import ChatGroq
 from statm8.constants.stat import GROQ_API_KEY
 from statm8.constants.vlm import VLM_MODEL, PLOT_ANALYSIS_TEMPLATE, SUMMARY_TEMPLATE
 from statm8.models.vlm import PlotAnalysis, AnalyzePlotsResponse, StreamPlotAnalysisResponse
 from statm8.services.export import save_vlm_analysis
+from statm8.services.storage import (
+    save_vlm_analysis_to_db,
+    get_vlm_analysis_from_db,
+    get_vlm_analysis_by_dataset,
+    compute_plots_hash
+)
 
 
 def get_vlm():
@@ -114,11 +121,20 @@ def generate_summary(vlm: ChatGroq, dataset_name: str, plot_analyses: List[PlotA
 
 def analyze_plots_stream(
     dataset_name: str,
-    plot_dir: Optional[str] = None
+    plot_dir: Optional[str] = None,
+    uid: Optional[str] = None,
+    csv_id: Optional[str] = None
 ) -> Generator[StreamPlotAnalysisResponse, None, None]:
     """
     Analyze all plots in a directory with streaming response.
     Yields analysis for each plot as it's processed.
+    Persists results to both local JSON and MongoDB.
+    
+    Args:
+        dataset_name: Name of the dataset
+        plot_dir: Optional custom plot directory
+        uid: User ID for MongoDB persistence
+        csv_id: CSV file ID for MongoDB persistence
     """
     if plot_dir is None:
         plot_dir = get_plot_dir_from_dataset(dataset_name)
@@ -211,18 +227,64 @@ def analyze_plots_stream(
             "overall_status": "completed" if successful_analyses else "failed"
         }
         save_vlm_analysis(dataset_name, analysis_data)
+        
+        # Also persist to MongoDB if user context available
+        if uid and csv_id:
+            try:
+                asyncio.get_event_loop().run_until_complete(
+                    save_vlm_analysis_to_db(
+                        uid=uid,
+                        csv_id=csv_id,
+                        dataset_name=dataset_name,
+                        plot_dir=plot_dir,
+                        plot_analyses=[pa.model_dump() for pa in successful_analyses],
+                        summary=summary,
+                        overall_status="completed" if successful_analyses else "failed"
+                    )
+                )
+            except Exception as e:
+                print(f"Failed to save VLM analysis to MongoDB: {e}")
 
 
 def analyze_plots_sync(
     dataset_name: str,
-    plot_dir: Optional[str] = None
+    plot_dir: Optional[str] = None,
+    uid: Optional[str] = None,
+    csv_id: Optional[str] = None,
+    use_cache: bool = True
 ) -> AnalyzePlotsResponse:
     """
     Analyze all plots in a directory synchronously.
     Returns complete analysis in a single response.
+    Supports caching via MongoDB to avoid redundant VLM API calls.
+    
+    Args:
+        dataset_name: Name of the dataset
+        plot_dir: Optional custom plot directory
+        uid: User ID for MongoDB persistence/cache
+        csv_id: CSV file ID for MongoDB persistence/cache
+        use_cache: Whether to use cached analysis if available
     """
     if plot_dir is None:
         plot_dir = get_plot_dir_from_dataset(dataset_name)
+    
+    # Check for cached analysis if caching enabled
+    if use_cache and uid and csv_id:
+        cached = get_vlm_analysis_from_db(uid, csv_id, dataset_name, plot_dir)
+        if cached:
+            # Return cached response
+            plot_analyses = [
+                PlotAnalysis(**pa) for pa in cached.get("plot_analyses", [])
+            ]
+            return AnalyzePlotsResponse(
+                dataset_name=dataset_name,
+                plot_dir=plot_dir,
+                total_plots=cached.get("total_plots", len(plot_analyses)),
+                plot_analyses=plot_analyses,
+                summary=cached.get("summary"),
+                overall_status=cached.get("overall_status", "completed"),
+                cached=True
+            )
     
     plots = get_plots_in_directory(plot_dir)
     
@@ -282,11 +344,29 @@ def analyze_plots_sync(
     }
     save_vlm_analysis(dataset_name, analysis_data)
     
+    # Also persist to MongoDB if user context available
+    if uid and csv_id:
+        try:
+            asyncio.get_event_loop().run_until_complete(
+                save_vlm_analysis_to_db(
+                    uid=uid,
+                    csv_id=csv_id,
+                    dataset_name=dataset_name,
+                    plot_dir=plot_dir,
+                    plot_analyses=[pa.model_dump() for pa in plot_analyses],
+                    summary=summary,
+                    overall_status=overall_status
+                )
+            )
+        except Exception as e:
+            print(f"Failed to save VLM analysis to MongoDB: {e}")
+    
     return AnalyzePlotsResponse(
         dataset_name=dataset_name,
         plot_dir=plot_dir,
         total_plots=len(plots),
         plot_analyses=plot_analyses,
         summary=summary,
-        overall_status=overall_status
+        overall_status=overall_status,
+        cached=False
     )

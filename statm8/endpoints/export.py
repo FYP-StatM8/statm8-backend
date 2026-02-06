@@ -1,12 +1,21 @@
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from statm8.models.export import ExportRequest, ExportResponse, ExportStatusResponse
 from statm8.services.export import (
     generate_pdf_report,
+    generate_pdf_report_with_upload,
     generate_markdown_report,
+    generate_markdown_report_with_upload,
     generate_latex_report,
+    generate_latex_report_with_upload,
     check_export_status,
     get_dataset_paths
+)
+from statm8.services.storage import (
+    get_user_exports,
+    get_export_by_id,
+    regenerate_export_url
 )
 import os
 
@@ -153,11 +162,17 @@ async def export_report(request: ExportRequest):
     """
     Generate a report for the EDA results in the specified format.
     
+    If uid and csv_id are provided:
+    - PDF: Uploads directly to Cloudinary and returns download URL
+    - Markdown/LaTeX: Creates a ZIP with the report + images, uploads to Cloudinary
+    
+    If uid/csv_id not provided, falls back to local file generation only.
+    
     Args:
         request: Export configuration including dataset name, format, and what to include
     
     Returns:
-        ExportResponse with path to the generated report
+        ExportResponse with download_url (Cloudinary) and export_id (MongoDB)
     """
     # Check if there's data to export
     status = check_export_status(request.dataset_name)
@@ -169,33 +184,72 @@ async def export_report(request: ExportRequest):
         )
     
     try:
+        # Use cloud-enabled functions if user context provided
+        use_cloud = request.uid and request.csv_id
+        
         if request.format == "markdown":
-            result = generate_markdown_report(
-                dataset_name=request.dataset_name,
-                include_summary=request.include_summary,
-                include_plots=request.include_plots,
-                include_vlm_analysis=request.include_vlm_analysis,
-                include_code=request.include_code,
-                custom_title=request.title
-            )
+            if use_cloud:
+                result = await generate_markdown_report_with_upload(
+                    dataset_name=request.dataset_name,
+                    uid=request.uid,
+                    csv_id=request.csv_id,
+                    include_summary=request.include_summary,
+                    include_plots=request.include_plots,
+                    include_vlm_analysis=request.include_vlm_analysis,
+                    include_code=request.include_code,
+                    custom_title=request.title
+                )
+            else:
+                result = generate_markdown_report(
+                    dataset_name=request.dataset_name,
+                    include_summary=request.include_summary,
+                    include_plots=request.include_plots,
+                    include_vlm_analysis=request.include_vlm_analysis,
+                    include_code=request.include_code,
+                    custom_title=request.title
+                )
         elif request.format == "latex":
-            result = generate_latex_report(
-                dataset_name=request.dataset_name,
-                include_summary=request.include_summary,
-                include_plots=request.include_plots,
-                include_vlm_analysis=request.include_vlm_analysis,
-                include_code=request.include_code,
-                custom_title=request.title
-            )
-        else:
-            result = generate_pdf_report(
-                dataset_name=request.dataset_name,
-                include_summary=request.include_summary,
-                include_plots=request.include_plots,
-                include_vlm_analysis=request.include_vlm_analysis,
-                include_code=request.include_code,
-                custom_title=request.title
-            )
+            if use_cloud:
+                result = await generate_latex_report_with_upload(
+                    dataset_name=request.dataset_name,
+                    uid=request.uid,
+                    csv_id=request.csv_id,
+                    include_summary=request.include_summary,
+                    include_plots=request.include_plots,
+                    include_vlm_analysis=request.include_vlm_analysis,
+                    include_code=request.include_code,
+                    custom_title=request.title
+                )
+            else:
+                result = generate_latex_report(
+                    dataset_name=request.dataset_name,
+                    include_summary=request.include_summary,
+                    include_plots=request.include_plots,
+                    include_vlm_analysis=request.include_vlm_analysis,
+                    include_code=request.include_code,
+                    custom_title=request.title
+                )
+        else:  # pdf
+            if use_cloud:
+                result = await generate_pdf_report_with_upload(
+                    dataset_name=request.dataset_name,
+                    uid=request.uid,
+                    csv_id=request.csv_id,
+                    include_summary=request.include_summary,
+                    include_plots=request.include_plots,
+                    include_vlm_analysis=request.include_vlm_analysis,
+                    include_code=request.include_code,
+                    custom_title=request.title
+                )
+            else:
+                result = generate_pdf_report(
+                    dataset_name=request.dataset_name,
+                    include_summary=request.include_summary,
+                    include_plots=request.include_plots,
+                    include_vlm_analysis=request.include_vlm_analysis,
+                    include_code=request.include_code,
+                    custom_title=request.title
+                )
         return result
     except Exception as e:
         raise HTTPException(
@@ -410,4 +464,82 @@ async def list_exports(dataset_name: str):
             "latex": tex_exports
         },
         "total": len(pdf_exports) + len(md_exports) + len(tex_exports)
+    }
+
+
+# ---------------- Cloud Storage Endpoints ----------------
+
+@router.get("/export/history/{uid}")
+async def get_export_history(
+    uid: str,
+    dataset_name: Optional[str] = Query(None, description="Filter by dataset name"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of results")
+):
+    """
+    Get export history for a user from MongoDB.
+    
+    Args:
+        uid: User ID
+        dataset_name: Optional filter by dataset
+        limit: Maximum number of results (default 20, max 100)
+    
+    Returns:
+        List of past exports with download URLs
+    """
+    exports = get_user_exports(uid, dataset_name, limit)
+    
+    return {
+        "uid": uid,
+        "dataset_name": dataset_name,
+        "exports": exports,
+        "total": len(exports)
+    }
+
+
+@router.get("/export/by-id/{export_id}")
+async def get_export_by_export_id(export_id: str):
+    """
+    Get a specific export by its MongoDB ID.
+    
+    Args:
+        export_id: MongoDB ObjectId as string
+    
+    Returns:
+        Export document with download URL
+    """
+    export = get_export_by_id(export_id)
+    
+    if not export:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Export not found: {export_id}"
+        )
+    
+    return export
+
+
+@router.post("/export/regenerate-url/{export_id}")
+async def regenerate_download_url(export_id: str):
+    """
+    Regenerate a signed Cloudinary URL for an export.
+    Use this when the original URL has expired (7-day expiration).
+    
+    Args:
+        export_id: MongoDB ObjectId as string
+    
+    Returns:
+        New signed download URL
+    """
+    new_url = regenerate_export_url(export_id)
+    
+    if not new_url:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Could not regenerate URL for export: {export_id}. Export not found or has no Cloudinary public_id."
+        )
+    
+    return {
+        "export_id": export_id,
+        "download_url": new_url,
+        "message": "URL regenerated successfully. Valid for 7 days."
     }

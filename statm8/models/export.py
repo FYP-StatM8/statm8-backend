@@ -26,6 +26,9 @@ class ExportRequest(BaseModel):
     include_code: bool = False  # Include generated code blocks
     title: Optional[str] = None  # Custom report title
     format: Literal["pdf", "markdown", "latex"] = "pdf"  # Export format: pdf, markdown or latex
+    # User context for cloud storage (optional - falls back to local-only if not provided)
+    uid: Optional[str] = None  # User ID
+    csv_id: Optional[str] = None  # CSV file ID
 
 
 class ExportResponse(BaseModel):
@@ -37,6 +40,11 @@ class ExportResponse(BaseModel):
     total_plots: int
     generated_at: str
     status: str  # success, failed
+    # Cloud storage fields
+    download_url: Optional[str] = None  # Cloudinary URL for direct download
+    export_id: Optional[str] = None  # MongoDB export ID
+    format: Literal["pdf", "markdown", "latex"] = "pdf"
+    is_zip: bool = False  # True for markdown/latex exports (bundled with images)
 
 
 class ExportStatusResponse(BaseModel):
