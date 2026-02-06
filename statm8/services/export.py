@@ -860,11 +860,14 @@ def generate_markdown_report(
                                 lines.append(analysis['analysis'])
                                 # lines.append("")
                             break
-                # Add plot image with relative path
-                plot_relative_path = os.path.relpath(plot.path, paths["export_dir"])
+                # Copy plot to export directory if not already there
+                dest_path = os.path.join(paths["export_dir"], plot.filename)
+                if not os.path.exists(dest_path):
+                    shutil.copy2(plot.path, dest_path)
+                # Add plot image with filename only
                 lines.append(f"### {plot.filename}")
                 lines.append("")
-                lines.append(f"![{plot.filename}]({plot_relative_path})")
+                lines.append(f"![{plot.filename}]({plot.filename})")
                 lines.append("")
                 
             
