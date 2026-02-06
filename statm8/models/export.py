@@ -25,7 +25,7 @@ class ExportRequest(BaseModel):
     include_vlm_analysis: bool = False  # Include VLM plot analyses (requires prior VLM run)
     include_code: bool = False  # Include generated code blocks
     title: Optional[str] = None  # Custom report title
-    format: Literal["pdf", "markdown"] = "pdf"  # Export format: pdf or markdown
+    format: Literal["pdf", "markdown", "latex"] = "pdf"  # Export format: pdf, markdown or latex
 
 
 class ExportResponse(BaseModel):

@@ -12,3 +12,5 @@ seaborn
 # VLM and Export dependencies
 fpdf2==2.8.1
 markdown>=3.5
+jinja2>=3.1
+mistune>=3.0

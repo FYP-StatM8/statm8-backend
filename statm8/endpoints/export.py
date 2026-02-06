@@ -4,6 +4,7 @@ from statm8.models.export import ExportRequest, ExportResponse, ExportStatusResp
 from statm8.services.export import (
     generate_pdf_report,
     generate_markdown_report,
+    generate_latex_report,
     check_export_status,
     get_dataset_paths
 )
@@ -109,6 +110,44 @@ async def export_to_markdown(request: ExportRequest):
         )
 
 
+@router.post("/export/latex", response_model=ExportResponse)
+async def export_to_latex(request: ExportRequest):
+    """
+    Generate a LaTeX report for the EDA results.
+    Uses the report document class with Jinja2 templating.
+    
+    Args:
+        request: Export configuration including dataset name and what to include
+    
+    Returns:
+        ExportResponse with path to the generated LaTeX (.tex) file
+    """
+    # Check if there's data to export
+    status = check_export_status(request.dataset_name)
+    
+    if not status.can_export:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No exportable data found for dataset: {request.dataset_name}"
+        )
+    
+    try:
+        result = generate_latex_report(
+            dataset_name=request.dataset_name,
+            include_summary=request.include_summary,
+            include_plots=request.include_plots,
+            include_vlm_analysis=request.include_vlm_analysis,
+            include_code=request.include_code,
+            custom_title=request.title
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate LaTeX report: {str(e)}"
+        )
+
+
 @router.post("/export", response_model=ExportResponse)
 async def export_report(request: ExportRequest):
     """
@@ -132,6 +171,15 @@ async def export_report(request: ExportRequest):
     try:
         if request.format == "markdown":
             result = generate_markdown_report(
+                dataset_name=request.dataset_name,
+                include_summary=request.include_summary,
+                include_plots=request.include_plots,
+                include_vlm_analysis=request.include_vlm_analysis,
+                include_code=request.include_code,
+                custom_title=request.title
+            )
+        elif request.format == "latex":
+            result = generate_latex_report(
                 dataset_name=request.dataset_name,
                 include_summary=request.include_summary,
                 include_plots=request.include_plots,
@@ -242,6 +290,49 @@ async def download_latest_markdown_export(dataset_name: str):
     )
 
 
+@router.get("/export/download/{dataset_name}/latex")
+async def download_latest_latex_export(dataset_name: str):
+    """
+    Download the latest generated LaTeX report for a dataset.
+    
+    Args:
+        dataset_name: Name of the dataset
+    
+    Returns:
+        LaTeX (.tex) file download
+    """
+    paths = get_dataset_paths(dataset_name)
+    export_dir = paths["export_dir"]
+    
+    if not os.path.exists(export_dir):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No exports found for dataset: {dataset_name}"
+        )
+    
+    # Find the latest LaTeX file for this dataset
+    tex_files = [
+        f for f in os.listdir(export_dir)
+        if f.startswith(dataset_name) and f.endswith('.tex')
+    ]
+    
+    if not tex_files:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No LaTeX exports found for dataset: {dataset_name}"
+        )
+    
+    # Get the most recent file
+    latest_tex = sorted(tex_files)[-1]
+    tex_path = os.path.join(export_dir, latest_tex)
+    
+    return FileResponse(
+        path=tex_path,
+        filename=latest_tex,
+        media_type="application/x-latex"
+    )
+
+
 @router.get("/export/list/{dataset_name}")
 async def list_exports(dataset_name: str):
     """
@@ -251,7 +342,7 @@ async def list_exports(dataset_name: str):
         dataset_name: Name of the dataset
     
     Returns:
-        List of available export files (PDFs and Markdown)
+        List of available export files (PDFs, Markdown, and LaTeX)
     """
     paths = get_dataset_paths(dataset_name)
     export_dir = paths["export_dir"]
@@ -259,7 +350,7 @@ async def list_exports(dataset_name: str):
     if not os.path.exists(export_dir):
         return {
             "dataset_name": dataset_name,
-            "exports": {"pdf": [], "markdown": []},
+            "exports": {"pdf": [], "markdown": [], "latex": []},
             "total": 0
         }
     
@@ -273,6 +364,12 @@ async def list_exports(dataset_name: str):
     md_files = [
         f for f in os.listdir(export_dir)
         if f.startswith(dataset_name) and f.endswith('.md')
+    ]
+    
+    # Find all LaTeX files for this dataset
+    tex_files = [
+        f for f in os.listdir(export_dir)
+        if f.startswith(dataset_name) and f.endswith('.tex')
     ]
     
     pdf_exports = []
@@ -295,11 +392,22 @@ async def list_exports(dataset_name: str):
             "format": "markdown"
         })
     
+    tex_exports = []
+    for tex_file in sorted(tex_files, reverse=True):
+        tex_path = os.path.join(export_dir, tex_file)
+        tex_exports.append({
+            "filename": tex_file,
+            "path": tex_path,
+            "size_bytes": os.path.getsize(tex_path),
+            "format": "latex"
+        })
+    
     return {
         "dataset_name": dataset_name,
         "exports": {
             "pdf": pdf_exports,
-            "markdown": md_exports
+            "markdown": md_exports,
+            "latex": tex_exports
         },
-        "total": len(pdf_exports) + len(md_exports)
+        "total": len(pdf_exports) + len(md_exports) + len(tex_exports)
     }
