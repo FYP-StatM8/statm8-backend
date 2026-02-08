@@ -3,16 +3,12 @@ from bson.objectid import ObjectId
 import os
 import hashlib
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import UploadFile, HTTPException
 from cloudinary.uploader import upload
-import cloudinary.utils
 
 load_dotenv()
-
-# Cloudinary signed URL expiration (7 days)
-CLOUDINARY_URL_EXPIRATION_DAYS = 7
 
 MONGO_URI = os.getenv("MONGO_URI")
 
@@ -99,7 +95,8 @@ async def upload_csv_file(uid: str, csv_name: str, json_response: str, csv_file:
         csv_upload = upload(
             csv_file.file,
             folder="csv_files",
-            resource_type="raw"
+            resource_type="raw",
+            type="upload"
         )
         csv_url = csv_upload.get("secure_url", csv_url)
     except Exception as e:
@@ -147,6 +144,7 @@ async def add_comment_assets(comment_id: str, code: str, description: str, image
         upload_result = upload(
             image.file,
             folder="comment_images",
+            type="upload"
         )
         image_urls.append(upload_result["secure_url"])
 
@@ -316,30 +314,6 @@ def get_vlm_analysis_by_dataset(dataset_name: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------- Export Storage ----------------
-def generate_signed_cloudinary_url(public_id: str, resource_type: str = "raw") -> str:
-    """
-    Generate a signed Cloudinary URL with expiration.
-    
-    Args:
-        public_id: Cloudinary public ID of the resource
-        resource_type: Type of resource (raw, image, video)
-    
-    Returns:
-        Signed URL with 7-day expiration
-    """
-    expiration_timestamp = int((datetime.utcnow() + timedelta(days=CLOUDINARY_URL_EXPIRATION_DAYS)).timestamp())
-    
-    signed_url = cloudinary.utils.cloudinary_url(
-        public_id,
-        resource_type=resource_type,
-        sign_url=True,
-        type="authenticated",
-        expires_at=expiration_timestamp
-    )[0]
-    
-    return signed_url
-
-
 async def upload_export_to_cloudinary(
     file_path: str,
     dataset_name: str,
@@ -366,8 +340,12 @@ async def upload_export_to_cloudinary(
                 f,
                 folder=folder,
                 resource_type="raw",
-                public_id=os.path.splitext(filename)[0],
-                overwrite=True
+                public_id=filename,  # Keep full filename with extension for proper URL resolution
+                overwrite=True,
+                access_mode="public",
+                type="upload",
+                use_filename=True,
+                unique_filename=False
             )
         
         return {
@@ -433,8 +411,7 @@ async def save_export_to_db(
         "sections_included": sections_included,
         "total_plots": total_plots,
         "local_path": local_path,
-        "created_at": datetime.utcnow(),
-        "expires_at": datetime.utcnow() + timedelta(days=CLOUDINARY_URL_EXPIRATION_DAYS) if cloudinary_url else None
+        "created_at": datetime.utcnow()
     }
     
     result = export_collection.insert_one(doc)
@@ -492,41 +469,3 @@ def get_user_exports(uid: str, dataset_name: Optional[str] = None, limit: int = 
         export["_id"] = str(export["_id"])
     
     return exports
-
-
-def regenerate_export_url(export_id: str) -> Optional[str]:
-    """
-    Regenerate a signed Cloudinary URL for an existing export.
-    Used when the original URL has expired.
-    
-    Args:
-        export_id: MongoDB ObjectId as string
-    
-    Returns:
-        New signed URL or None if not possible
-    """
-    if export_collection is None:
-        return None
-    
-    try:
-        export = export_collection.find_one({"_id": ObjectId(export_id)})
-        if not export or not export.get("public_id"):
-            return None
-        
-        new_url = generate_signed_cloudinary_url(export["public_id"])
-        
-        # Update the stored URL and expiration
-        export_collection.update_one(
-            {"_id": ObjectId(export_id)},
-            {
-                "$set": {
-                    "cloudinary_url": new_url,
-                    "expires_at": datetime.utcnow() + timedelta(days=CLOUDINARY_URL_EXPIRATION_DAYS)
-                }
-            }
-        )
-        
-        return new_url
-    except Exception as e:
-        print(f"Failed to regenerate export URL: {e}")
-        return None

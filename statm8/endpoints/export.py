@@ -14,8 +14,7 @@ from statm8.services.export import (
 )
 from statm8.services.storage import (
     get_user_exports,
-    get_export_by_id,
-    regenerate_export_url
+    get_export_by_id
 )
 import os
 
@@ -516,30 +515,3 @@ async def get_export_by_export_id(export_id: str):
         )
     
     return export
-
-
-@router.post("/export/regenerate-url/{export_id}")
-async def regenerate_download_url(export_id: str):
-    """
-    Regenerate a signed Cloudinary URL for an export.
-    Use this when the original URL has expired (7-day expiration).
-    
-    Args:
-        export_id: MongoDB ObjectId as string
-    
-    Returns:
-        New signed download URL
-    """
-    new_url = regenerate_export_url(export_id)
-    
-    if not new_url:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Could not regenerate URL for export: {export_id}. Export not found or has no Cloudinary public_id."
-        )
-    
-    return {
-        "export_id": export_id,
-        "download_url": new_url,
-        "message": "URL regenerated successfully. Valid for 7 days."
-    }
