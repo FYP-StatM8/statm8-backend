@@ -629,10 +629,9 @@ def create_export_zip_in_memory(
 async def generate_pdf_report_with_upload(
     uid: str,
     csv_id: str,
-    vlm_analysis_id: Optional[str] = None,
+    vlm_analysis_id: str,
     include_summary: bool = True,
     include_plots: bool = True,
-    include_vlm_analysis: bool = False,
     include_code: bool = False,
     custom_title: Optional[str] = None
 ) -> ExportResponse:
@@ -642,10 +641,9 @@ async def generate_pdf_report_with_upload(
     Args:
         uid: User ID for storage
         csv_id: CSV file ID (MongoDB ObjectId string)
-        vlm_analysis_id: VLM analysis ID (required if include_vlm_analysis=True)
+        vlm_analysis_id: VLM analysis ID (required)
         include_summary: Include dataset summary section
         include_plots: Include generated plots
-        include_vlm_analysis: Include VLM plot analyses
         include_code: Include generated code blocks
         custom_title: Custom title for the report
     
@@ -712,12 +710,10 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
             pdf.add_page()
             pdf.chapter_title("Generated Visualizations")
             
-            # Load VLM analysis if available and requested
-            vlm_data = None
-            if include_vlm_analysis:
-                vlm_data = load_vlm_analysis_from_db(csv_id)
-                if vlm_data:
-                    sections_included.append("vlm_analysis")
+            # Load VLM analysis (vlm_analysis_id is required)
+            vlm_data = load_vlm_analysis_from_db(csv_id)
+            if vlm_data:
+                sections_included.append("vlm_analysis")
             
             for idx, plot in enumerate(plots):
                 # Add a new page if not the first plot
@@ -770,7 +766,7 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
     db_result = await save_export_to_db(
         uid=uid,
         csv_id=csv_id,
-        vlm_analysis_id=vlm_analysis_id or "",
+        vlm_analysis_id=vlm_analysis_id,
         export_format="pdf",
         cloudinary_url=upload_result.get("cloudinary_url"),
         public_id=upload_result.get("public_id"),
@@ -797,10 +793,9 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
 async def generate_markdown_report_with_upload(
     uid: str,
     csv_id: str,
-    vlm_analysis_id: Optional[str] = None,
+    vlm_analysis_id: str,
     include_summary: bool = True,
     include_plots: bool = True,
-    include_vlm_analysis: bool = False,
     include_code: bool = False,
     custom_title: Optional[str] = None
 ) -> ExportResponse:
@@ -810,10 +805,9 @@ async def generate_markdown_report_with_upload(
     Args:
         uid: User ID for storage
         csv_id: CSV file ID (MongoDB ObjectId string)
-        vlm_analysis_id: VLM analysis ID (required if include_vlm_analysis=True)
+        vlm_analysis_id: VLM analysis ID (required)
         include_summary: Include dataset summary section
         include_plots: Include generated plots
-        include_vlm_analysis: Include VLM plot analyses
         include_code: Include generated code blocks
         custom_title: Custom title for the report
     
@@ -894,12 +888,10 @@ async def generate_markdown_report_with_upload(
             lines.append("## Generated Visualizations")
             lines.append("")
             
-            # Load VLM analysis if available and requested
-            vlm_data = None
-            if include_vlm_analysis:
-                vlm_data = load_vlm_analysis_from_db(csv_id)
-                if vlm_data:
-                    sections_included.append("vlm_analysis")
+            # Load VLM analysis (vlm_analysis_id is required)
+            vlm_data = load_vlm_analysis_from_db(csv_id)
+            if vlm_data:
+                sections_included.append("vlm_analysis")
             
             for plot in plots:
                 # Add VLM analysis if available - preserve original markdown
@@ -958,7 +950,7 @@ async def generate_markdown_report_with_upload(
     db_result = await save_export_to_db(
         uid=uid,
         csv_id=csv_id,
-        vlm_analysis_id=vlm_analysis_id or "",
+        vlm_analysis_id=vlm_analysis_id,
         export_format="markdown",
         cloudinary_url=upload_result.get("cloudinary_url"),
         public_id=upload_result.get("public_id"),
@@ -985,10 +977,9 @@ async def generate_markdown_report_with_upload(
 async def generate_latex_report_with_upload(
     uid: str,
     csv_id: str,
-    vlm_analysis_id: Optional[str] = None,
+    vlm_analysis_id: str,
     include_summary: bool = True,
     include_plots: bool = True,
-    include_vlm_analysis: bool = False,
     include_code: bool = False,
     custom_title: Optional[str] = None
 ) -> ExportResponse:
@@ -999,10 +990,9 @@ async def generate_latex_report_with_upload(
     Args:
         uid: User ID for storage
         csv_id: CSV file ID (MongoDB ObjectId string)
-        vlm_analysis_id: VLM analysis ID (required if include_vlm_analysis=True)
+        vlm_analysis_id: VLM analysis ID (required)
         include_summary: Include dataset summary section
         include_plots: Include generated plots
-        include_vlm_analysis: Include VLM plot analyses
         include_code: Include generated code blocks
         custom_title: Custom title for the report
     
@@ -1052,12 +1042,10 @@ async def generate_latex_report_with_upload(
             sections_included.append("plots")
             total_plots = len(plots)
             
-            # Load VLM analysis if available and requested
-            vlm_data = None
-            if include_vlm_analysis:
-                vlm_data = load_vlm_analysis_from_db(csv_id)
-                if vlm_data:
-                    sections_included.append("vlm_analysis")
+            # Load VLM analysis (vlm_analysis_id is required)
+            vlm_data = load_vlm_analysis_from_db(csv_id)
+            if vlm_data:
+                sections_included.append("vlm_analysis")
             
             for plot in plots:
                 # Fetch plot image from Cloudinary
@@ -1116,7 +1104,7 @@ async def generate_latex_report_with_upload(
     db_result = await save_export_to_db(
         uid=uid,
         csv_id=csv_id,
-        vlm_analysis_id=vlm_analysis_id or "",
+        vlm_analysis_id=vlm_analysis_id,
         export_format="latex",
         cloudinary_url=upload_result.get("cloudinary_url"),
         public_id=upload_result.get("public_id"),

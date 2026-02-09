@@ -77,7 +77,6 @@ async def export_report(request: ExportRequest):
                 vlm_analysis_id=request.vlm_analysis_id,
                 include_summary=request.include_summary,
                 include_plots=request.include_plots,
-                include_vlm_analysis=request.include_vlm_analysis,
                 include_code=request.include_code,
                 custom_title=request.title
             )
@@ -88,7 +87,6 @@ async def export_report(request: ExportRequest):
                 vlm_analysis_id=request.vlm_analysis_id,
                 include_summary=request.include_summary,
                 include_plots=request.include_plots,
-                include_vlm_analysis=request.include_vlm_analysis,
                 include_code=request.include_code,
                 custom_title=request.title
             )
@@ -99,7 +97,6 @@ async def export_report(request: ExportRequest):
                 vlm_analysis_id=request.vlm_analysis_id,
                 include_summary=request.include_summary,
                 include_plots=request.include_plots,
-                include_vlm_analysis=request.include_vlm_analysis,
                 include_code=request.include_code,
                 custom_title=request.title
             )
