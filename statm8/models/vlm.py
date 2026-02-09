@@ -5,7 +5,7 @@ from typing import List, Optional
 class PlotAnalysis(BaseModel):
     """Analysis result for a single plot"""
     plot_filename: str
-    plot_path: str
+    plot_url: str = ""  # Cloudinary URL
     analysis: str
     plot_type: Optional[str] = None
     status: str = "pending"  # pending, analyzing, success, error
@@ -14,18 +14,17 @@ class PlotAnalysis(BaseModel):
 
 class AnalyzePlotsRequest(BaseModel):
     """Request model for VLM plot analysis"""
-    dataset_name: str  # Name of dataset (e.g., 'iris', 'breast-cancer')
-    plot_dir: Optional[str] = None  # Optional custom plot directory path
-    # User context for MongoDB persistence/caching
-    uid: Optional[str] = None  # User ID
-    csv_id: Optional[str] = None  # CSV file ID
+    uid: str  # User ID (required)
+    csv_id: str  # CSV file ID (required)
+    comment_id: str  # Comment ID (required) - VLM analysis is per-comment
     use_cache: bool = True  # Whether to use cached analysis if available
 
 
 class AnalyzePlotsResponse(BaseModel):
     """Response model for VLM plot analysis"""
-    dataset_name: str
-    plot_dir: str
+    csv_id: str  # CSV file ID
+    csv_name: str  # Display name for the CSV
+    comment_id: str  # Comment ID this analysis is for
     total_plots: int
     plot_analyses: List[PlotAnalysis]
     summary: Optional[str] = None
@@ -38,7 +37,7 @@ class StreamPlotAnalysisResponse(BaseModel):
     plot_index: int
     total_plots: int
     plot_filename: str
-    plot_path: str
+    plot_url: str = ""  # Cloudinary URL
     analysis: str
     status: str
     error: Optional[str] = None

@@ -1,10 +1,10 @@
 import pandas as pd
 import json
-import os
+import io
 import tempfile
 from typing import Dict, List, Any
 from statm8.models.loader import DatasetSummaryResponse, ColumnInfo
-from statm8.constants.stat import llm, UPLOAD_FOLDER
+from statm8.constants.stat import llm
 from statm8.constants.loader import DATASET_SUMMARY_TEMPLATE
 
 def serialize_value(value: Any) -> Any:
@@ -25,14 +25,13 @@ def serialize_value(value: Any) -> Any:
             return str(value)
     return value
 
-def load_dataframe(file_path: str) -> tuple[pd.DataFrame, str]:
-    """Load CSV or JSON file into pandas DataFrame"""
-    if file_path.endswith('.csv'):
-        return pd.read_csv(file_path), 'csv'
-    elif file_path.endswith('.json'):
+def load_dataframe_from_bytes(content: bytes, filename: str) -> tuple[pd.DataFrame, str]:
+    """Load CSV or JSON content into pandas DataFrame from bytes"""
+    if filename.endswith('.csv'):
+        return pd.read_csv(io.BytesIO(content)), 'csv'
+    elif filename.endswith('.json'):
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            data = json.loads(content.decode('utf-8'))
             
             if isinstance(data, list):
                 if len(data) == 0:
@@ -68,6 +67,14 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, str]:
             raise ValueError(f"Failed to load JSON file: {str(e)}")
     else:
         raise ValueError("Unsupported file type. Only CSV and JSON files are supported.")
+
+
+def load_dataframe(file_path: str) -> tuple[pd.DataFrame, str]:
+    """Load CSV or JSON file into pandas DataFrame (legacy - for temporary files)"""
+    with open(file_path, 'rb') as f:
+        content = f.read()
+    filename = file_path.split('/')[-1]
+    return load_dataframe_from_bytes(content, filename)
 
 def get_column_info(df: pd.DataFrame) -> List[ColumnInfo]:
     """Extract detailed information about each column"""
@@ -167,21 +174,34 @@ def generate_ai_summary(demographics: str, sample_rows: List[Dict[str, Any]]) ->
     })
     return response.content
 
-def save_file_to_folder(content: bytes, filename: str) -> str:
-    """Save uploaded file to designated folder"""
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+def save_temp_file(content: bytes, filename: str) -> str:
+    """Save uploaded file to a temporary location for processing"""
+    temp_dir = tempfile.mkdtemp(prefix="statm8_upload_")
+    file_path = f"{temp_dir}/{filename}"
     with open(file_path, 'wb') as f:
         f.write(content)
     return file_path
 
-def analyze_file(content: bytes, filename: str) -> DatasetSummaryResponse:
-    """Complete dataset analysis pipeline"""
 
-    file_path = save_file_to_folder(content, filename)
-    
-    # Load dataframe
-    df, file_type = load_dataframe(file_path)
+def cleanup_temp_file(file_path: str):
+    """Clean up temporary file after processing"""
+    import shutil
+    try:
+        temp_dir = '/'.join(file_path.split('/')[:-1])
+        if temp_dir and temp_dir.startswith(tempfile.gettempdir()):
+            shutil.rmtree(temp_dir)
+    except Exception as e:
+        print(f"Failed to cleanup temp file: {e}")
+
+
+def analyze_file(content: bytes, filename: str) -> DatasetSummaryResponse:
+    """
+    Complete dataset analysis pipeline.
+    Returns analysis results - storage is handled by the caller.
+    """
+    # Load dataframe directly from bytes
+    df, file_type = load_dataframe_from_bytes(content, filename)
 
     columns_info = get_column_info(df)
     sample_rows = get_sample_rows(df, 5)

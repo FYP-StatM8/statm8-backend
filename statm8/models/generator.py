@@ -11,23 +11,24 @@ class CodeBlock(BaseModel):
     error: Optional[str] = None
     execution_time: Optional[float] = None
     plots_generated: List[str] = []
+    plot_urls: List[str] = []  # Cloudinary URLs for generated plots
 
 
 class GenerateEDARequest(BaseModel):
     """Request model for EDA generation"""
-    file_path: str
+    uid: str  # User ID (required)
+    csv_id: str  # CSV file ID (required) - csv_name will be fetched from this
     comments: Optional[str] = None  # User comments/instructions for EDA generation
-    uid: str
-    csv_id: str
 
 
 class GenerateEDAResponse(BaseModel):
     """Response model for EDA generation"""
-    file_path: str
-    output_dir: str
+    csv_id: str  # CSV file ID
+    csv_name: str  # Display name for the CSV
     total_blocks: int
     blocks: List[CodeBlock]
     overall_status: str  # generating, executing, completed, failed
+    plot_urls: List[str] = []  # All Cloudinary URLs for generated plots
     
 
 class StreamCodeBlockResponse(BaseModel):
@@ -39,3 +40,4 @@ class StreamCodeBlockResponse(BaseModel):
     output: Optional[str] = None
     error: Optional[str] = None
     plots_generated: List[str] = []
+    plot_urls: List[str] = []  # Cloudinary URLs for generated plots
