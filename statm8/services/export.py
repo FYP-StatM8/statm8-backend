@@ -619,9 +619,9 @@ def create_export_zip_in_memory(
         # Add the main report file at root level
         zf.writestr(report_filename, report_content)
         
-        # Add images to images/{dataset_name}/ subfolder
+        # Add images to images/ subfolder
         for filename, image_bytes in plot_images:
-            zf.writestr(f"images/{dataset_name}/{filename}", image_bytes)
+            zf.writestr(f"images/{filename}", image_bytes)
     
     return zip_buffer.getvalue()
 
@@ -909,10 +909,10 @@ async def generate_markdown_report_with_upload(
                 except Exception as e:
                     pass  # Skip failed images
                 
-                # Add plot image reference - use images/{csv_name}/ subfolder
+                # Add plot image reference - use images/ subfolder
                 lines.append(f"### {plot.filename}")
                 lines.append("")
-                lines.append(f"![{plot.filename}](images/{csv_name}/{plot.filename})")
+                lines.append(f"![{plot.filename}](images/{plot.filename})")
                 lines.append("")
             
             # Add VLM summary if available - preserve original markdown
@@ -1057,7 +1057,7 @@ async def generate_latex_report_with_upload(
                 
                 plot_info = {
                     "filename": plot.filename,
-                    "relative_path": f"images/{csv_name}/{plot.filename}",  # Use images/{csv_name}/ subfolder
+                    "relative_path": f"images/{plot.filename}",  # Use images/ subfolder
                     "analysis": None
                 }
                 
