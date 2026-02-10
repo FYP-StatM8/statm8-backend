@@ -124,7 +124,8 @@ def generate_summary(vlm: ChatGroq, csv_name: str, plot_analyses: List[PlotAnaly
 async def analyze_plots_stream(
     uid: str,
     csv_id: str,
-    comment_id: str
+    comment_id: str,
+    limit: Optional[int] = None
 ) -> Generator[StreamPlotAnalysisResponse, None, None]:
     """
     Analyze all plots for a CSV file using Vision Language Model.
@@ -135,12 +136,17 @@ async def analyze_plots_stream(
         uid: User ID for MongoDB persistence
         csv_id: CSV file ID (MongoDB ObjectId string)
         comment_id: Comment ID (MongoDB ObjectId string) - VLM analysis is per-comment
+        limit: Max number of plots to analyze (None = 10, use high value like 9999 for unlimited)
     """
     # Get csv_name for display
     csv_name = get_csv_name_by_id(csv_id)
     
     # Get plots from MongoDB
     plots = get_plots_from_mongodb(csv_id, uid, comment_id)
+    
+    # Apply limit (default 10 if None)
+    effective_limit = limit if limit is not None else 10
+    plots = plots[:effective_limit]
     
     if not plots:
         yield StreamPlotAnalysisResponse(
@@ -239,7 +245,8 @@ async def analyze_plots_sync(
     uid: str,
     csv_id: str,
     comment_id: str,
-    use_cache: bool = True
+    use_cache: bool = True,
+    limit: Optional[int] = None
 ) -> AnalyzePlotsResponse:
     """
     Analyze all plots for a CSV file synchronously.
@@ -251,15 +258,22 @@ async def analyze_plots_sync(
         csv_id: CSV file ID (MongoDB ObjectId string)
         comment_id: Comment ID (MongoDB ObjectId string) - VLM analysis is per-comment
         use_cache: Whether to use cached analysis if available
+        limit: Max number of plots to analyze (None = 10, use high value like 9999 for unlimited)
     """
     # Get csv_name for display
     csv_name = get_csv_name_by_id(csv_id)
     
     # Get plots from MongoDB
     plots = get_plots_from_mongodb(csv_id, uid, comment_id)
+    
+    # Apply limit (default 10 if None)
+    effective_limit = limit if limit is not None else 10
+    plots = plots[:effective_limit]
+    
     plot_urls = [p["cloudinary_url"] for p in plots] if plots else []
     
     # Check for cached analysis if caching enabled
+    # Note: limit is part of cache key via plot_urls (limited list)
     if use_cache and uid and csv_id and comment_id:
         cached = get_vlm_analysis_from_db(uid, csv_id, comment_id, plot_urls)
         if cached:

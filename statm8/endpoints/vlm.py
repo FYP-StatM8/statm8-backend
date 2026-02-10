@@ -44,7 +44,8 @@ async def analyze_plots_streaming(request: AnalyzePlotsRequest):
             async for result in analyze_plots_stream(
                 uid=request.uid,
                 csv_id=request.csv_id,
-                comment_id=request.comment_id
+                comment_id=request.comment_id,
+                limit=request.limit
             ):
                 data = result.model_dump_json()
                 yield f"data: {data}\n\n"
@@ -101,7 +102,8 @@ async def analyze_plots(request: AnalyzePlotsRequest):
             uid=request.uid,
             csv_id=request.csv_id,
             comment_id=request.comment_id,
-            use_cache=request.use_cache
+            use_cache=request.use_cache,
+            limit=request.limit
         )
         return result
     except Exception as e:

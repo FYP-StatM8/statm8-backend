@@ -18,6 +18,7 @@ class AnalyzePlotsRequest(BaseModel):
     csv_id: str  # CSV file ID (required)
     comment_id: str  # Comment ID (required) - VLM analysis is per-comment
     use_cache: bool = True  # Whether to use cached analysis if available
+    limit: Optional[int] = None  # Max number of plots to analyze (None = 10, use high value like 9999 for unlimited)
 
 
 class AnalyzePlotsResponse(BaseModel):
