@@ -11,9 +11,11 @@ from statm8.services.storage import (
     csv_collection,
     comment_collection,
     asset_collection,
+    vlm_collection,
     upload_csv_file, 
     add_csv_comment, 
-    add_comment_assets
+    add_comment_assets,
+    get_all_vlm_analyses_for_csv
 )
 
 router = APIRouter(prefix="/storage", tags=["Storage"])
@@ -93,5 +95,28 @@ def get_comment_assets(comment_id: str):
         for asset_doc in assets:
             asset_doc["_id"] = str(asset_doc["_id"])
         return {"assets": assets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.get("/csv/{csv_id}/vlm-analyses")
+def get_csv_vlm_analyses(csv_id: str, uid: str = None):
+    """Get all VLM analyses for a given CSV file.
+    
+    Args:
+        csv_id: The ID of the CSV file
+        uid: Optional user ID to filter analyses by user
+    
+    Returns:
+        List of VLM analyses for the CSV, sorted by created_at descending
+    """
+    if vlm_collection is None:
+        return {"vlm_analyses": [], "count": 0, "message": "Database connection not available"}
+    if not ObjectId.is_valid(csv_id):
+        raise HTTPException(status_code=400, detail="Invalid CSV ID")
+
+    try:
+        analyses = get_all_vlm_analyses_for_csv(csv_id, uid)
+        return {"vlm_analyses": analyses, "count": len(analyses)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

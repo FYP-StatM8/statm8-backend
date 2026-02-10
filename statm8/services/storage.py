@@ -734,3 +734,24 @@ async def get_csv_file_for_processing(csv_id: str) -> Tuple[bytes, str]:
     csv_name = doc.get("csv_name")
     csv_bytes = await fetch_csv_bytes_from_cloudinary(csv_url)
     return csv_bytes, csv_name
+
+
+def get_all_vlm_analyses_for_csv(csv_id: str, uid: Optional[str] = None) -> List[Dict[str, Any]]:
+    """
+    Get all VLM analyses for a given CSV file.
+    
+    Args:
+        csv_id: The ID of the CSV file
+        uid: Optional user ID to filter analyses by user
+    
+    Returns:
+        List of VLM analysis documents, sorted by created_at descending
+    """
+    query = {"csv_id": csv_id}
+    if uid:
+        query["uid"] = uid
+    
+    analyses = list(vlm_collection.find(query).sort("created_at", -1))
+    for analysis in analyses:
+        analysis["_id"] = str(analysis["_id"])
+    return analyses
