@@ -61,3 +61,11 @@ class ExportStatusResponse(BaseModel):
     plot_count: int
     has_vlm_analysis: bool
     can_export: bool
+
+
+class ExportListResponse(BaseModel):
+    """Response model for listing exports by csv_id and uid"""
+    csv_id: str  # CSV file ID
+    uid: str  # User ID
+    exports: List[dict]  # List of export documents
+    total: int  # Total number of exports returned

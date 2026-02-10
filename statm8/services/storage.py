@@ -620,6 +620,28 @@ def get_user_exports(uid: str, csv_id: Optional[str] = None, limit: int = 20) ->
     return exports
 
 
+def get_exports_by_csv_and_uid(csv_id: str, uid: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """
+    Get all exports for a specific CSV file and user.
+    
+    Args:
+        csv_id: CSV file ID (required)
+        uid: User ID (required)
+        limit: Maximum number of results
+    
+    Returns:
+        List of export documents sorted by created_at descending
+    """
+    query = {"csv_id": csv_id, "uid": uid}
+    
+    exports = list(export_collection.find(query).sort("created_at", -1).limit(limit))
+    
+    for export in exports:
+        export["_id"] = str(export["_id"])
+    
+    return exports
+
+
 # ---------------- Dataset Summary Storage ----------------
 def save_dataset_summary_to_db(
     uid: str,
