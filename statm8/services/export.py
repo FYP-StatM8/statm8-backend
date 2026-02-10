@@ -21,7 +21,8 @@ from statm8.services.storage import (
     get_vlm_analysis_by_id,
     get_plots_for_csv,
     get_dataset_summary_from_db,
-    get_csv_name_by_id
+    get_csv_name_by_id,
+    get_code_blocks_for_comment
 )
 
 
@@ -149,6 +150,28 @@ LATEX_TEMPLATE = r"""
 \chapter{VLM Analysis Summary}
 
 \VAR{vlm_summary | markdown_to_latex}
+\BLOCK{endif}
+
+\BLOCK{if code_blocks}
+\chapter{Generated Code}
+
+This chapter contains the Python code that was used to generate the visualizations and perform the analysis.
+
+\BLOCK{for block in code_blocks}
+\section{\VAR{block.description | latex_escape}}
+
+\begin{lstlisting}[language=Python, caption={\VAR{block.description | latex_escape}}]
+\VAR{block.code}
+\end{lstlisting}
+
+\BLOCK{if block.output}
+\subsection*{Output}
+\begin{verbatim}
+\VAR{block.output}
+\end{verbatim}
+\BLOCK{endif}
+
+\BLOCK{endfor}
 \BLOCK{endif}
 
 \end{document}
@@ -785,6 +808,41 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
                 pdf.chapter_title("VLM Analysis Summary")
                 pdf.chapter_body(vlm_analysis['summary'])
     
+    # Code Section
+    if include_code and comment_id:
+        code_blocks = get_code_blocks_for_comment(comment_id)
+        if code_blocks:
+            sections_included.append("code")
+            pdf.add_page()
+            pdf.chapter_title("Generated Code")
+            pdf.chapter_body("This section contains the Python code that was used to generate the visualizations and perform the analysis.")
+            
+            for idx, block in enumerate(code_blocks):
+                if idx > 0:
+                    pdf.add_page()
+                
+                description = block.get('description', f'Code Block {idx + 1}')
+                pdf.chapter_title(description)
+                
+                # Display code with monospace font
+                code = block.get('code', '')
+                if code:
+                    pdf.set_font('Courier', '', 8)
+                    # Handle long lines by wrapping
+                    for line in code.split('\n'):
+                        pdf.multi_cell(0, 4, line)
+                    pdf.ln(4)
+                
+                # Display output if available
+                output = block.get('output', '')
+                if output:
+                    pdf.set_font('Helvetica', 'B', 10)
+                    pdf.cell(0, 8, "Output:", 0, 1)
+                    pdf.set_font('Courier', '', 8)
+                    for line in output.split('\n'):
+                        pdf.multi_cell(0, 4, line)
+                    pdf.ln(4)
+    
     # Generate PDF in memory
     pdf_bytes = bytes(pdf.output())
     file_size = len(pdf_bytes)
@@ -961,6 +1019,39 @@ async def generate_markdown_report_with_upload(
                 lines.append(vlm_analysis['summary'])
                 lines.append("")
     
+    # Code Section
+    if include_code and comment_id:
+        code_blocks = get_code_blocks_for_comment(comment_id)
+        if code_blocks:
+            sections_included.append("code")
+            lines.append("---")
+            lines.append("")
+            lines.append("## Generated Code")
+            lines.append("")
+            lines.append("This section contains the Python code that was used to generate the visualizations and perform the analysis.")
+            lines.append("")
+            
+            for idx, block in enumerate(code_blocks):
+                description = block.get('description', f'Code Block {idx + 1}')
+                lines.append(f"### {description}")
+                lines.append("")
+                
+                code = block.get('code', '')
+                if code:
+                    lines.append("```python")
+                    lines.append(code)
+                    lines.append("```")
+                    lines.append("")
+                
+                output = block.get('output', '')
+                if output:
+                    lines.append("**Output:**")
+                    lines.append("")
+                    lines.append("```")
+                    lines.append(output)
+                    lines.append("```")
+                    lines.append("")
+    
     # Build markdown content
     md_content = '\n'.join(lines)
     md_bytes = md_content.encode('utf-8')
@@ -1109,6 +1200,21 @@ async def generate_latex_report_with_upload(
             # Add VLM summary if available
             if vlm_analysis.get('summary'):
                 template_data["vlm_summary"] = vlm_analysis['summary']
+    
+    # Code Section
+    if include_code and comment_id:
+        code_blocks = get_code_blocks_for_comment(comment_id)
+        if code_blocks:
+            sections_included.append("code")
+            # Prepare code blocks for template
+            template_code_blocks = []
+            for idx, block in enumerate(code_blocks):
+                template_code_blocks.append({
+                    "description": block.get('description', f'Code Block {idx + 1}'),
+                    "code": block.get('code', ''),
+                    "output": block.get('output', '')
+                })
+            template_data["code_blocks"] = template_code_blocks
     
     # Render LaTeX template using Jinja2
     env = get_latex_environment()

@@ -327,6 +327,22 @@ async def add_comment_assets(
     }
 
 
+def get_code_blocks_for_comment(comment_id: str) -> List[Dict[str, Any]]:
+    """
+    Retrieve code blocks (assets) associated with a comment_id.
+    
+    Args:
+        comment_id: The comment ID to retrieve code blocks for
+    
+    Returns:
+        List of code block documents with code, description, and output
+    """
+    assets = list(asset_collection.find({"comment_id": comment_id}).sort("created_at", 1))
+    for asset in assets:
+        asset["_id"] = str(asset["_id"])
+    return assets
+
+
 # ---------------- VLM Analysis Storage ----------------
 def compute_plots_hash(plot_urls: List[str]) -> str:
     """
