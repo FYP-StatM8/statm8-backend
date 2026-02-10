@@ -461,6 +461,27 @@ def get_vlm_analysis_by_csv(csv_id: str) -> Optional[Dict[str, Any]]:
     return analysis
 
 
+def get_vlm_analysis_by_id(vlm_analysis_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve VLM analysis by its MongoDB _id.
+    
+    Args:
+        vlm_analysis_id: MongoDB ObjectId string for the VLM analysis
+    
+    Returns:
+        VLM analysis document if found, None otherwise
+    """
+    try:
+        analysis = vlm_collection.find_one({"_id": ObjectId(vlm_analysis_id)})
+        if not analysis:
+            return None
+        
+        analysis["_id"] = str(analysis["_id"])
+        return analysis
+    except Exception:
+        return None
+
+
 # ---------------- Export Storage ----------------
 async def upload_export_to_cloudinary(
     file_bytes: bytes,
