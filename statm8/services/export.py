@@ -817,6 +817,15 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
             pdf.chapter_title("Generated Code")
             pdf.chapter_body("This section contains the Python code that was used to generate the visualizations and perform the analysis.")
             
+            # Calculate max characters per line for code blocks
+            pdf.set_font('Courier', '', 7)
+            effective_width = pdf.w - pdf.l_margin - pdf.r_margin
+            char_width = pdf.get_string_width('M')  # Width of widest monospace char
+            max_chars = int(effective_width / char_width) - 2  # Safety margin
+            
+            # Track if any lines were wrapped
+            has_wrapped_lines = False
+            
             for idx, block in enumerate(code_blocks):
                 if idx > 0:
                     pdf.add_page()
@@ -827,10 +836,19 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
                 # Display code with monospace font
                 code = block.get('code', '')
                 if code:
-                    pdf.set_font('Courier', '', 8)
-                    # Handle long lines by wrapping
+                    pdf.set_font('Courier', '', 7)
+                    # Sanitize encoding for FPDF (latin-1 compatible)
+                    code = code.encode('latin-1', 'replace').decode('latin-1')
+                    
                     for line in code.split('\n'):
-                        pdf.multi_cell(0, 4, line)
+                        if len(line) > max_chars:
+                            has_wrapped_lines = True
+                            # Break long lines into chunks that fit
+                            for i in range(0, len(line), max_chars):
+                                chunk = line[i:i + max_chars]
+                                pdf.cell(0, 4, chunk, ln=True)
+                        else:
+                            pdf.cell(0, 4, line, ln=True)
                     pdf.ln(4)
                 
                 # Display output if available
@@ -838,10 +856,28 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
                 if output:
                     pdf.set_font('Helvetica', 'B', 10)
                     pdf.cell(0, 8, "Output:", 0, 1)
-                    pdf.set_font('Courier', '', 8)
+                    pdf.set_font('Courier', '', 7)
+                    # Sanitize encoding for FPDF (latin-1 compatible)
+                    output = output.encode('latin-1', 'replace').decode('latin-1')
+                    
                     for line in output.split('\n'):
-                        pdf.multi_cell(0, 4, line)
+                        if len(line) > max_chars:
+                            has_wrapped_lines = True
+                            # Break long lines into chunks that fit
+                            for i in range(0, len(line), max_chars):
+                                chunk = line[i:i + max_chars]
+                                pdf.cell(0, 4, chunk, ln=True)
+                        else:
+                            pdf.cell(0, 4, line, ln=True)
                     pdf.ln(4)
+            
+            # Add note about wrapped lines if any were detected
+            if has_wrapped_lines:
+                pdf.ln(4)
+                pdf.set_font('Helvetica', 'I', 8)
+                pdf.set_text_color(100, 100, 100)
+                pdf.multi_cell(0, 4, "Note: Some long lines have been wrapped to fit the page width. For the original formatting, please use the Markdown or LaTeX export options.")
+                pdf.set_text_color(0, 0, 0)  # Reset to black
     
     # Generate PDF in memory
     pdf_bytes = bytes(pdf.output())
