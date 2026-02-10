@@ -18,6 +18,7 @@ from statm8.services.storage import (
     upload_export_to_cloudinary,
     save_export_to_db,
     get_vlm_analysis_by_csv,
+    get_vlm_analysis_by_id,
     get_plots_for_csv,
     get_dataset_summary_from_db,
     get_csv_name_by_id
@@ -575,15 +576,47 @@ def load_vlm_analysis_from_db(csv_id: str) -> Optional[Dict[str, Any]]:
     return get_vlm_analysis_by_csv(csv_id)
 
 
-def get_plots_from_db(csv_id: str, uid: Optional[str] = None) -> List[PlotInfo]:
-    """Get list of plots from MongoDB by csv_id"""
-    plots = get_plots_for_csv(csv_id, uid)
+def get_plots_from_db(csv_id: str, uid: Optional[str] = None, comment_id: Optional[str] = None) -> List[PlotInfo]:
+    """Get list of plots from MongoDB by csv_id, optionally filtered by comment_id"""
+    plots = get_plots_for_csv(csv_id, uid, comment_id)
     return [
         PlotInfo(
             filename=p["filename"],
             url=p["cloudinary_url"]
         )
         for p in plots
+    ]
+
+
+def get_plots_from_vlm_analysis(vlm_analysis: Dict[str, Any]) -> List[PlotInfo]:
+    """
+    Extract plots from a VLM analysis document.
+    
+    Args:
+        vlm_analysis: VLM analysis document containing plot_analyses field
+        
+    Returns:
+        List of PlotInfo objects constructed from plot_analyses
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    plot_analyses = vlm_analysis.get("plot_analyses")
+    
+    if not plot_analyses:
+        logger.warning(
+            f"plot_analyses is empty or missing in vlm_analysis document "
+            f"(id: {vlm_analysis.get('_id', 'unknown')})"
+        )
+        return []
+    
+    return [
+        PlotInfo(
+            filename=p.get("plot_filename", ""),
+            url=p.get("plot_url", ""),
+            analysis=p.get("analysis")
+        )
+        for p in plot_analyses
     ]
 
 
@@ -649,7 +682,17 @@ async def generate_pdf_report_with_upload(
     
     Returns:
         ExportResponse with Cloudinary download URL
+    
+    Raises:
+        ValueError: If vlm_analysis_id is invalid or not found
     """
+    # Lookup VLM analysis to get comment_id for unique plot selection
+    vlm_analysis = get_vlm_analysis_by_id(vlm_analysis_id)
+    if not vlm_analysis:
+        raise ValueError(f"VLM analysis not found for id: {vlm_analysis_id}")
+    
+    comment_id = vlm_analysis.get("comment_id")
+    
     # Get csv_name for display
     csv_name = get_csv_name_by_id(csv_id)
     
@@ -702,32 +745,24 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
     
     # Plots Section
     if include_plots:
-        plots = get_plots_from_db(csv_id, uid)
+        plots = get_plots_from_vlm_analysis(vlm_analysis)
         if plots:
             sections_included.append("plots")
+            sections_included.append("vlm_analysis")
             total_plots = len(plots)
             
             pdf.add_page()
             pdf.chapter_title("Generated Visualizations")
-            
-            # Load VLM analysis (vlm_analysis_id is required)
-            vlm_data = load_vlm_analysis_from_db(csv_id)
-            if vlm_data:
-                sections_included.append("vlm_analysis")
             
             for idx, plot in enumerate(plots):
                 # Add a new page if not the first plot
                 if idx > 0:
                     pdf.add_page()
                     
-                # Add VLM analysis if available
-                if vlm_data and 'plot_analyses' in vlm_data:
-                    for analysis in vlm_data['plot_analyses']:
-                        if analysis.get('plot_filename') == plot.filename:
-                            if analysis.get('analysis'):
-                                pdf.set_font('Helvetica', 'I', 9)
-                                pdf.chapter_body(analysis['analysis'])
-                            break
+                # Add VLM analysis if available (already included in PlotInfo)
+                if plot.analysis:
+                    pdf.set_font('Helvetica', 'I', 9)
+                    pdf.chapter_body(plot.analysis)
                 
                 # Fetch image from Cloudinary and add to PDF
                 try:
@@ -745,10 +780,10 @@ Total Columns: {summary_data.get('total_columns', 'N/A')}
                     pdf.chapter_body(f"[Error loading plot: {plot.filename}]")
             
             # Add VLM summary if available
-            if vlm_data and 'summary' in vlm_data and vlm_data['summary']:
+            if vlm_analysis.get('summary'):
                 pdf.add_page()
                 pdf.chapter_title("VLM Analysis Summary")
-                pdf.chapter_body(vlm_data['summary'])
+                pdf.chapter_body(vlm_analysis['summary'])
     
     # Generate PDF in memory
     pdf_bytes = bytes(pdf.output())
@@ -813,7 +848,17 @@ async def generate_markdown_report_with_upload(
     
     Returns:
         ExportResponse with Cloudinary download URL for the ZIP file
+    
+    Raises:
+        ValueError: If vlm_analysis_id is invalid or not found
     """
+    # Lookup VLM analysis to get comment_id for unique plot selection
+    vlm_analysis = get_vlm_analysis_by_id(vlm_analysis_id)
+    if not vlm_analysis:
+        raise ValueError(f"VLM analysis not found for id: {vlm_analysis_id}")
+    
+    comment_id = vlm_analysis.get("comment_id")
+    
     # Get csv_name for display
     csv_name = get_csv_name_by_id(csv_id)
     
@@ -878,9 +923,10 @@ async def generate_markdown_report_with_upload(
     plot_images: List[Tuple[str, bytes]] = []
     
     if include_plots:
-        plots = get_plots_from_db(csv_id, uid)
+        plots = get_plots_from_vlm_analysis(vlm_analysis)
         if plots:
             sections_included.append("plots")
+            sections_included.append("vlm_analysis")
             total_plots = len(plots)
             
             lines.append("---")
@@ -888,19 +934,10 @@ async def generate_markdown_report_with_upload(
             lines.append("## Generated Visualizations")
             lines.append("")
             
-            # Load VLM analysis (vlm_analysis_id is required)
-            vlm_data = load_vlm_analysis_from_db(csv_id)
-            if vlm_data:
-                sections_included.append("vlm_analysis")
-            
             for plot in plots:
-                # Add VLM analysis if available - preserve original markdown
-                if vlm_data and 'plot_analyses' in vlm_data:
-                    for analysis in vlm_data['plot_analyses']:
-                        if analysis.get('plot_filename') == plot.filename:
-                            if analysis.get('analysis'):
-                                lines.append(analysis['analysis'])
-                            break
+                # Add VLM analysis if available (already included in PlotInfo)
+                if plot.analysis:
+                    lines.append(plot.analysis)
                 
                 # Fetch plot image from Cloudinary
                 try:
@@ -915,13 +952,13 @@ async def generate_markdown_report_with_upload(
                 lines.append(f"![{plot.filename}](images/{plot.filename})")
                 lines.append("")
             
-            # Add VLM summary if available - preserve original markdown
-            if vlm_data and 'summary' in vlm_data and vlm_data['summary']:
+            # Add VLM summary if available
+            if vlm_analysis.get('summary'):
                 lines.append("---")
                 lines.append("")
                 lines.append("## VLM Analysis Summary")
                 lines.append("")
-                lines.append(vlm_data['summary'])
+                lines.append(vlm_analysis['summary'])
                 lines.append("")
     
     # Build markdown content
@@ -998,7 +1035,17 @@ async def generate_latex_report_with_upload(
     
     Returns:
         ExportResponse with Cloudinary download URL for the ZIP file
+    
+    Raises:
+        ValueError: If vlm_analysis_id is invalid or not found
     """
+    # Lookup VLM analysis to get comment_id for unique plot selection
+    vlm_analysis = get_vlm_analysis_by_id(vlm_analysis_id)
+    if not vlm_analysis:
+        raise ValueError(f"VLM analysis not found for id: {vlm_analysis_id}")
+    
+    comment_id = vlm_analysis.get("comment_id")
+    
     # Get csv_name for display
     csv_name = get_csv_name_by_id(csv_id)
     
@@ -1037,15 +1084,11 @@ async def generate_latex_report_with_upload(
     plot_images: List[Tuple[str, bytes]] = []
     
     if include_plots:
-        plots = get_plots_from_db(csv_id, uid)
+        plots = get_plots_from_vlm_analysis(vlm_analysis)
         if plots:
             sections_included.append("plots")
+            sections_included.append("vlm_analysis")
             total_plots = len(plots)
-            
-            # Load VLM analysis (vlm_analysis_id is required)
-            vlm_data = load_vlm_analysis_from_db(csv_id)
-            if vlm_data:
-                sections_included.append("vlm_analysis")
             
             for plot in plots:
                 # Fetch plot image from Cloudinary
@@ -1058,21 +1101,14 @@ async def generate_latex_report_with_upload(
                 plot_info = {
                     "filename": plot.filename,
                     "relative_path": f"images/{plot.filename}",  # Use images/ subfolder
-                    "analysis": None
+                    "analysis": plot.analysis  # Already included in PlotInfo
                 }
-                
-                # Add VLM analysis if available
-                if vlm_data and 'plot_analyses' in vlm_data:
-                    for analysis in vlm_data['plot_analyses']:
-                        if analysis.get('plot_filename') == plot.filename:
-                            plot_info["analysis"] = analysis.get('analysis', '')
-                            break
                 
                 template_data["plots"].append(plot_info)
             
             # Add VLM summary if available
-            if vlm_data and 'summary' in vlm_data and vlm_data['summary']:
-                template_data["vlm_summary"] = vlm_data['summary']
+            if vlm_analysis.get('summary'):
+                template_data["vlm_summary"] = vlm_analysis['summary']
     
     # Render LaTeX template using Jinja2
     env = get_latex_environment()

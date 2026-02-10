@@ -27,7 +27,15 @@ Important:
 - Save plots using: plt.savefig(os.path.join(output_dir, 'plot_name.png'), bbox_inches='tight', dpi=300)
 - Always close plots after saving: plt.close()
 - Each code block should be independent and complete
-- NO MARKDOWN FORMATTING - pure Python code only"""),
+- NO MARKDOWN FORMATTING - pure Python code only
+
+FORBIDDEN - NEVER use these in generated code:
+- plt.show() - NEVER use this, it blocks execution waiting for a window
+- while True or any infinite loops
+- input() or any user input functions
+- time.sleep() with values greater than 1 second
+- Recursive calls without explicit depth limits
+- Operations that iterate over entire large datasets without sampling (for datasets > 10000 rows, use df.sample() or df.head())"""),
     
     ("user", """Dataset Information:
 File Path: {file_path}

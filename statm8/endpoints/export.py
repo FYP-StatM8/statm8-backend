@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
-from statm8.models.export import ExportRequest, ExportResponse, ExportStatusResponse
+from statm8.models.export import ExportRequest, ExportResponse, ExportStatusResponse, ExportListResponse
 from statm8.services.export import (
     generate_pdf_report_with_upload,
     generate_markdown_report_with_upload,
@@ -10,7 +10,8 @@ from statm8.services.export import (
 from statm8.services.storage import (
     get_user_exports,
     get_export_by_id,
-    get_csv_name_by_id
+    get_csv_name_by_id,
+    get_exports_by_csv_and_uid
 )
 
 router = APIRouter(tags=["Export"])
@@ -157,3 +158,30 @@ async def get_export_by_export_id(export_id: str):
         )
     
     return export
+
+
+@router.get("/export/csv/{csv_id}", response_model=ExportListResponse)
+async def get_exports_for_csv(
+    csv_id: str,
+    uid: str = Query(..., description="User ID (required)"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of results")
+):
+    """
+    Get all exports for a specific CSV file and user.
+    
+    Args:
+        csv_id: MongoDB ObjectId string for the CSV file
+        uid: User ID (required)
+        limit: Maximum number of results (default 20, max 100)
+    
+    Returns:
+        List of exports with download URLs
+    """
+    exports = get_exports_by_csv_and_uid(csv_id, uid, limit)
+    
+    return ExportListResponse(
+        csv_id=csv_id,
+        uid=uid,
+        exports=exports,
+        total=len(exports)
+    )
