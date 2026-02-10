@@ -77,7 +77,8 @@ async def generate_eda_stream(request: GenerateEDARequest, max_retries: int = 2)
                 request.comments, 
                 max_retries,
                 request.uid,
-                request.csv_id
+                request.csv_id,
+                comment_id
             ):
                 data = result.model_dump()
                 
@@ -141,6 +142,15 @@ async def generate_eda(request: GenerateEDARequest, max_retries: int = 2):
     
     output_dir = get_output_dir_from_filepath(temp_file_path)
     
+    # Add CSV comment
+    final_comment = request.comments.strip() if request.comments and request.comments.strip() else "EMPTY COMMENT"
+    comment_result = add_csv_comment(
+        uid=request.uid,
+        csv_id=request.csv_id,
+        comment=final_comment
+    )
+    comment_id = comment_result["comment_id"]
+    
     try:
         result = await generate_and_execute_eda_sync_with_upload(
             temp_file_path, 
@@ -148,7 +158,8 @@ async def generate_eda(request: GenerateEDARequest, max_retries: int = 2):
             request.comments, 
             max_retries,
             request.uid,
-            request.csv_id
+            request.csv_id,
+            comment_id
         )
         return result
     except Exception as e:
