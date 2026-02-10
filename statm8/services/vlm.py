@@ -22,6 +22,7 @@ def get_vlm():
         model=VLM_MODEL,
         temperature=0.3,
         max_retries=2,
+        timeout=30,  # 30 second timeout for VLM requests
         api_key=GROQ_API_KEY
     )
 
@@ -42,8 +43,8 @@ def get_plots_from_mongodb(csv_id: str, uid: Optional[str] = None, comment_id: O
 
 
 async def fetch_image_bytes(url: str) -> bytes:
-    """Fetch image bytes from Cloudinary URL"""
-    async with httpx.AsyncClient() as client:
+    """Fetch image bytes from Cloudinary URL with timeout"""
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url)
         response.raise_for_status()
         return response.content

@@ -7,6 +7,7 @@ import json
 import tempfile
 import traceback
 import re
+import subprocess
 from contextlib import redirect_stdout, redirect_stderr
 from typing import List, Dict, Any, Generator, Optional, Tuple
 from statm8.models.generator import CodeBlock, GenerateEDAResponse, StreamCodeBlockResponse
@@ -17,6 +18,11 @@ from statm8.services.storage import (
     save_plot_to_db,
     get_csv_name_by_id
 )
+
+# Execution timeout in seconds
+EXECUTION_TIMEOUT = 60
+# Maximum failures before skipping a block
+MAX_FAILURES_BEFORE_SKIP = 3
 
 
 def get_dataset_name_from_filepath(file_path: str) -> str:
@@ -181,45 +187,106 @@ output_dir = '{output_dir}'
     return code_blocks
 
 
-def execute_code_block(code_block: CodeBlock, file_path: str, output_dir: str, max_retries: int = 2) -> CodeBlock:
-    """Execute a single code block with retry logic. Plots are saved temporarily then uploaded to Cloudinary."""
+def _build_executable_code(code: str, file_path: str, output_dir: str) -> str:
+    """
+    Build a complete executable Python script with proper imports and matplotlib backend.
+    Forces non-interactive Agg backend to prevent GUI-related hangs.
+    """
+    # Check if code already has imports
+    has_imports = 'import pandas' in code or 'import matplotlib' in code
+    
+    if has_imports:
+        # Inject matplotlib backend at the very beginning
+        return f"""import matplotlib
+matplotlib.use('Agg')  # Force non-interactive backend
+{code}"""
+    else:
+        # Full setup with imports
+        return f"""import matplotlib
+matplotlib.use('Agg')  # Force non-interactive backend
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import os
+
+df = pd.read_csv('{file_path}')
+output_dir = '{output_dir}'
+
+{code}"""
+
+
+def _execute_code_in_subprocess(code: str, timeout: int = EXECUTION_TIMEOUT) -> Tuple[str, str, int, bool]:
+    """
+    Execute Python code in a subprocess with timeout.
+    
+    Returns:
+        Tuple of (stdout, stderr, return_code, timed_out)
+    """
+    # Create a temporary file to hold the code
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(code)
+        temp_script_path = f.name
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, temp_script_path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=os.path.dirname(temp_script_path)
+        )
+        return result.stdout, result.stderr, result.returncode, False
+    except subprocess.TimeoutExpired:
+        return "", f"Execution timed out after {timeout} seconds", -1, True
+    except Exception as e:
+        return "", f"Subprocess execution failed: {str(e)}", -1, False
+    finally:
+        # Cleanup temporary script file
+        try:
+            os.unlink(temp_script_path)
+        except:
+            pass
+
+
+def execute_code_block(code_block: CodeBlock, file_path: str, output_dir: str, max_retries: int = MAX_FAILURES_BEFORE_SKIP - 1) -> CodeBlock:
+    """
+    Execute a single code block with retry logic using subprocess for isolation and timeout.
+    Plots are saved temporarily then uploaded to Cloudinary.
+    Skips block after MAX_FAILURES_BEFORE_SKIP (3) consecutive failures.
+    """
     os.makedirs(output_dir, exist_ok=True)
     
     current_code = code_block.code
     attempt = 0
+    total_failures = 0
     
-    while attempt <= max_retries:
+    while attempt <= max_retries and total_failures < MAX_FAILURES_BEFORE_SKIP:
         # Track plots before execution
         plots_before = set(os.listdir(output_dir)) if os.path.exists(output_dir) else set()
         
-        # Prepare execution environment
-        exec_globals = {
-            'pd': pd,
-            'os': os,
-            'file_path': file_path,
-            'output_dir': output_dir,
-        }
-        
-        # Capture stdout and stderr
-        stdout_capture = io.StringIO()
-        stderr_capture = io.StringIO()
+        # Build executable code with proper matplotlib backend
+        executable_code = _build_executable_code(current_code, file_path, output_dir)
         
         start_time = time.time()
         code_block.status = "executing"
         
-        try:
-            with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                exec(current_code, exec_globals)
-            
-            execution_time = time.time() - start_time
-            
-            # Check for new plots
+        # Execute in subprocess with timeout
+        stdout, stderr, return_code, timed_out = _execute_code_in_subprocess(
+            executable_code, 
+            timeout=EXECUTION_TIMEOUT
+        )
+        
+        execution_time = time.time() - start_time
+        
+        if return_code == 0 and not timed_out:
+            # Success
             plots_after = set(os.listdir(output_dir)) if os.path.exists(output_dir) else set()
             new_plots = list(plots_after - plots_before)
             
             code_block.status = "success"
             code_block.code = current_code
-            code_block.output = stdout_capture.getvalue()
+            code_block.output = stdout
             code_block.execution_time = round(execution_time, 2)
             code_block.plots_generated = new_plots
             
@@ -227,14 +294,26 @@ def execute_code_block(code_block: CodeBlock, file_path: str, output_dir: str, m
                 code_block.output = f"[Regenerated after {attempt} attempt(s)]\n" + code_block.output
             
             return code_block
+        else:
+            # Failure - either error or timeout
+            total_failures += 1
             
-        except Exception as e:
-            execution_time = time.time() - start_time
-            error_msg = f"{str(e)}\n\n{traceback.format_exc()}"
+            if timed_out:
+                error_msg = f"Execution timed out after {EXECUTION_TIMEOUT} seconds. The code may contain infinite loops, heavy computations, or blocking calls."
+            else:
+                error_msg = stderr if stderr else f"Execution failed with return code {return_code}"
+            
+            print(f"Block {code_block.id} failed (attempt {attempt + 1}/{max_retries + 1}, total failures: {total_failures}/{MAX_FAILURES_BEFORE_SKIP}): {error_msg[:200]}...")
+            
+            # Check if we should skip this block entirely
+            if total_failures >= MAX_FAILURES_BEFORE_SKIP:
+                code_block.status = "skipped"
+                code_block.error = f"Skipped after {MAX_FAILURES_BEFORE_SKIP} consecutive failures.\n\nLast error:\n{error_msg}"
+                code_block.execution_time = round(execution_time, 2)
+                code_block.output = stdout
+                return code_block
             
             if attempt < max_retries:
-                print(f"Block {code_block.id} failed (attempt {attempt + 1}/{max_retries + 1}). Regenerating...")
-                
                 try:
                     current_code = regenerate_single_code_block(
                         file_path=file_path,
@@ -247,14 +326,20 @@ def execute_code_block(code_block: CodeBlock, file_path: str, output_dir: str, m
                     continue
                 except Exception as regen_error:
                     print(f"Regeneration failed: {regen_error}")
+                    total_failures += 1
                     attempt += 1
                     continue
             else:
                 code_block.status = "error"
                 code_block.error = f"Failed after {max_retries + 1} attempts.\n\nFinal error:\n{error_msg}"
                 code_block.execution_time = round(execution_time, 2)
-                code_block.output = stdout_capture.getvalue()
+                code_block.output = stdout
                 return code_block
+    
+    # Fallback - should not reach here normally
+    code_block.status = "skipped"
+    code_block.error = f"Skipped after {total_failures} failures"
+    return code_block
 
 
 async def upload_plots_from_block(

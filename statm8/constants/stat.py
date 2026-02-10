@@ -9,4 +9,5 @@ llm = ChatGroq(
     model="llama-3.1-8b-instant",
     temperature=0.0,
     max_retries=2,
+    timeout=30,  # 30 second timeout for LLM requests to prevent hanging
 )
