@@ -148,12 +148,18 @@ async def upload_plot_to_cloudinary(
             type="upload"
         )
         
+        cloudinary_url = upload_result.get("secure_url", "")
+        public_id = upload_result.get("public_id", "")
+        
+        print(f"✅ Plot uploaded to Cloudinary: {filename} -> {cloudinary_url}")
+        
         return {
-            "cloudinary_url": upload_result.get("secure_url", ""),
-            "public_id": upload_result.get("public_id", ""),
+            "cloudinary_url": cloudinary_url,
+            "public_id": public_id,
             "format": upload_result.get("format", "png")
         }
     except Exception as e:
+        print(f"❌ Cloudinary plot upload failed for {filename}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Cloudinary plot upload failed: {str(e)}")
 
 
@@ -263,10 +269,26 @@ def add_csv_comment(uid: str, csv_id: str, comment: str):
     return {"comment_id": str(result.inserted_id)}
 
 # ---------------- Add Comment Asset ----------------
-async def add_comment_assets(comment_id: str, code: str, description: str, images: List[UploadFile]):
-    """Add code and images to a comment."""
+async def add_comment_assets(
+    comment_id: str, 
+    code: str, 
+    description: str, 
+    images: List[UploadFile],
+    plot_urls: Optional[List[str]] = None
+):
+    """
+    Add code and images to a comment.
+    
+    Args:
+        comment_id: The comment ID to associate assets with
+        code: The code block that generated the assets
+        description: Description of the code block
+        images: List of UploadFile images to upload to Cloudinary
+        plot_urls: List of already-uploaded Cloudinary URLs for plots
+    """
     image_urls = []
 
+    # Upload any new images from UploadFile objects
     for image in images:
         upload_result = upload(
             image.file,
@@ -274,6 +296,10 @@ async def add_comment_assets(comment_id: str, code: str, description: str, image
             type="upload"
         )
         image_urls.append(upload_result["secure_url"])
+
+    # Merge with already-uploaded plot URLs
+    if plot_urls:
+        image_urls.extend(plot_urls)
 
     doc = {
         "comment_id": comment_id,

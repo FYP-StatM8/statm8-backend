@@ -85,14 +85,15 @@ async def generate_eda_stream(request: GenerateEDARequest, max_retries: int = 2)
                 if data.get("status") == "success":
                     images: list[UploadFile] = []
                     
-                    # If plots were uploaded, they're now URLs - we can skip local file reading
-                    # The images are already in Cloudinary
+                    # Get the plot URLs that were already uploaded to Cloudinary
+                    plot_urls = data.get("plot_urls", [])
                     
                     await add_comment_assets(
                         comment_id=comment_id,
                         code=data.get("code", ""),
                         description=data.get("description", ""),
-                        images=images  # Empty since plots are in Cloudinary
+                        images=images,
+                        plot_urls=plot_urls  # Pass the Cloudinary URLs
                     )
 
                 yield f"data: {result.model_dump_json()}\n\n"
