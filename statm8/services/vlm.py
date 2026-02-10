@@ -26,18 +26,19 @@ def get_vlm():
     )
 
 
-def get_plots_from_mongodb(csv_id: str, uid: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_plots_from_mongodb(csv_id: str, uid: Optional[str] = None, comment_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Get plot information from MongoDB.
     
     Args:
         csv_id: MongoDB ObjectId string for the CSV file
         uid: Optional user ID filter
+        comment_id: Optional comment ID filter (required for VLM analysis endpoints)
     
     Returns:
         List of plot documents with cloudinary URLs
     """
-    return get_plots_for_csv(csv_id, uid)
+    return get_plots_for_csv(csv_id, uid, comment_id)
 
 
 async def fetch_image_bytes(url: str) -> bytes:
@@ -138,7 +139,7 @@ async def analyze_plots_stream(
     csv_name = get_csv_name_by_id(csv_id)
     
     # Get plots from MongoDB
-    plots = get_plots_from_mongodb(csv_id, uid)
+    plots = get_plots_from_mongodb(csv_id, uid, comment_id)
     
     if not plots:
         yield StreamPlotAnalysisResponse(
@@ -254,7 +255,7 @@ async def analyze_plots_sync(
     csv_name = get_csv_name_by_id(csv_id)
     
     # Get plots from MongoDB
-    plots = get_plots_from_mongodb(csv_id, uid)
+    plots = get_plots_from_mongodb(csv_id, uid, comment_id)
     plot_urls = [p["cloudinary_url"] for p in plots] if plots else []
     
     # Check for cached analysis if caching enabled

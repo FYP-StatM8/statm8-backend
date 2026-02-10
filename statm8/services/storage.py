@@ -170,7 +170,8 @@ async def save_plot_to_db(
     cloudinary_url: str,
     public_id: str,
     code_block_id: Optional[int] = None,
-    description: Optional[str] = None
+    description: Optional[str] = None,
+    comment_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Save plot metadata to MongoDB.
@@ -183,6 +184,7 @@ async def save_plot_to_db(
         public_id: Cloudinary public ID
         code_block_id: ID of the code block that generated this plot
         description: Description of the plot
+        comment_id: Optional comment ID for associating plot with specific analysis
     
     Returns:
         Dict with plot_id
@@ -199,12 +201,17 @@ async def save_plot_to_db(
         "public_id": public_id,
         "code_block_id": code_block_id,
         "description": description,
+        "comment_id": comment_id,
         "created_at": datetime.utcnow()
     }
     
-    # Upsert based on csv_id and filename to avoid duplicates
+    # Upsert based on csv_id, filename, and comment_id to avoid duplicates
+    query = {"csv_id": csv_id, "filename": filename}
+    if comment_id:
+        query["comment_id"] = comment_id
+    
     result = plots_collection.update_one(
-        {"csv_id": csv_id, "filename": filename},
+        query,
         {"$set": doc},
         upsert=True
     )
@@ -212,17 +219,18 @@ async def save_plot_to_db(
     if result.upserted_id:
         return {"plot_id": str(result.upserted_id)}
     
-    existing = plots_collection.find_one({"csv_id": csv_id, "filename": filename})
+    existing = plots_collection.find_one(query)
     return {"plot_id": str(existing["_id"]) if existing else None}
 
 
-def get_plots_for_csv(csv_id: str, uid: Optional[str] = None) -> List[Dict[str, Any]]:
+def get_plots_for_csv(csv_id: str, uid: Optional[str] = None, comment_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Get all plots for a CSV file from MongoDB.
     
     Args:
         csv_id: MongoDB ObjectId string for the CSV file
         uid: Optional user ID filter
+        comment_id: Optional comment ID filter (required for VLM analysis endpoints)
     
     Returns:
         List of plot documents with cloudinary URLs
@@ -230,6 +238,8 @@ def get_plots_for_csv(csv_id: str, uid: Optional[str] = None) -> List[Dict[str, 
     query = {"csv_id": csv_id}
     if uid:
         query["uid"] = uid
+    if comment_id:
+        query["comment_id"] = comment_id
     
     plots = list(plots_collection.find(query).sort("created_at", 1))
     

@@ -31,7 +31,7 @@ async def analyze_plots_streaming(request: AnalyzePlotsRequest):
         Server-Sent Events stream with analysis for each plot, followed by a summary
     """
     # Check if plots exist in MongoDB
-    plots = get_plots_for_csv(request.csv_id, request.uid)
+    plots = get_plots_for_csv(request.csv_id, request.uid, request.comment_id)
     if not plots:
         csv_name = get_csv_name_by_id(request.csv_id)
         raise HTTPException(
@@ -88,7 +88,7 @@ async def analyze_plots(request: AnalyzePlotsRequest):
         Response includes 'cached' field indicating if result was from cache.
     """
     # Check if plots exist in MongoDB
-    plots = get_plots_for_csv(request.csv_id, request.uid)
+    plots = get_plots_for_csv(request.csv_id, request.uid, request.comment_id)
     if not plots:
         csv_name = get_csv_name_by_id(request.csv_id)
         raise HTTPException(
